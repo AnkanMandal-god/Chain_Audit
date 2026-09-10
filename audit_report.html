@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chain-Mind Audit Report: LocalFile::VulnerableVault.sol</title>
+    <style>
+        :root {
+            --bg: #0b0f19;
+            --surface: #111827;
+            --surface-border: #1f2937;
+            --text-main: #f9fafb;
+            --text-dim: #9ca3af;
+            --accent: #ef4444;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: var(--font);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--surface-border);
+            padding-bottom: 24px;
+            margin-bottom: 32px;
+        }
+        .brand {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: #38bdf8;
+        }
+        .brand span { color: #f9fafb; }
+        .badge {
+            padding: 8px 18px;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-safe { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; }
+        .badge-warning { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; }
+        .badge-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .metric-label { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px; }
+        .metric-val { font-size: 1.1rem; font-weight: 700; word-break: break-all; }
+        
+        .section-box {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 32px;
+        }
+        h2 { font-size: 1.3rem; margin-bottom: 16px; color: #38bdf8; }
+        
+        .finding-card {
+            background: #1e293b;
+            border-left: 4px solid var(--accent);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .finding-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .finding-title { font-size: 1.1rem; font-weight: 700; }
+        .sev-tag {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 800;
+        }
+        .sev-critical { background: #dc2626; color: #fff; }
+        .sev-high { background: #ea580c; color: #fff; }
+        .sev-medium { background: #d97706; color: #fff; }
+        .sev-low { background: #059669; color: #fff; }
+        .finding-loc { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; }
+        .finding-loc code { background: #0f172a; padding: 2px 6px; border-radius: 4px; color: #38bdf8; }
+        .finding-desc { font-size: 0.95rem; color: #e2e8f0; margin-bottom: 14px; }
+
+        .remediation-details {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+        }
+        .remediation-details summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #38bdf8;
+        }
+        .diff-block {
+            margin-top: 12px;
+            background: #020617;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        
+        .clean-box { text-align: center; padding: 40px; }
+        .clean-icon { font-size: 3rem; color: #10b981; margin-bottom: 12px; }
+        ul.recs-list { padding-left: 20px; }
+        ul.recs-list li { margin-bottom: 8px; color: #cbd5e1; }
+        footer { text-align: center; color: var(--text-dim); font-size: 0.8rem; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="brand">CHAIN-MIND <span>AUDITOR</span></div>
+            <div class="badge badge-critical">CRITICAL (9/10)</div>
+        </header>
+
+        <div class="overview-grid">
+            <div class="metric-card">
+                <div class="metric-label">Target Address / File</div>
+                <div class="metric-val">LocalFile::VulnerableVault.sol</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Audit Timestamp</div>
+                <div class="metric-val">2026-09-10T19:43:03.845730+00:00</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Defensive Firewall</div>
+                <div class="metric-val" style="color: #ef4444">3 Injections Neutralized</div>
+            </div>
+        </div>
+
+        <div class="section-box">
+            <h2>Functional Summary</h2>
+            <p style="font-style: italic; color: #cbd5e1;">Contract &#x27;VulnerableVault&#x27; appears to be a smart contract handling on-chain state. Automated static and heuristic inspection identified 3 potential security concerns.</p>
+        </div>
+
+        <div class="section-box">
+            <h2>Vulnerability & Security Findings</h2>
+            
+                <div class="finding-card">
+                    <div class="finding-header">
+                        <span class="sev-tag sev-critical">CRITICAL</span>
+                        <h3 class="finding-title">Reentrancy</h3>
+                    </div>
+                    <div class="finding-loc"><strong>Location:</strong> <code>function withdrawAll()</code></div>
+                    <p class="finding-desc">Function &#x27;withdrawAll&#x27; performs an external call before updating on-chain state, and lacks a nonReentrant modifier (violates Checks-Effects-Interactions).</p>
+                    
+                    <details class="remediation-details">
+                        <summary>View Recommended Code Fix (Apply Checks-Effects-Interactions &amp; ReentrancyGuard)</summary>
+                        <pre class="diff-block"><code>-   function withdraw(uint256 amount) external {
+-       (bool success, ) = msg.sender.call{value: amount}(&quot;&quot;);
+-       require(success, &quot;Transfer failed&quot;);
+-       balances[msg.sender] -= amount;
+-   }
++   // 1. Inherit OpenZeppelin&#x27;s ReentrancyGuard
++   function withdraw(uint256 amount) external nonReentrant {
++       // 2. Checks
++       require(balances[msg.sender] &gt;= amount, &quot;Insufficient balance&quot;);
++       // 3. Effects (state modified BEFORE external call)
++       balances[msg.sender] -= amount;
++       // 4. Interactions
++       (bool success, ) = msg.sender.call{value: amount}(&quot;&quot;);
++       require(success, &quot;Transfer failed&quot;);
++   }</code></pre>
+                    </details>
+                    
+                </div>
+                
+                <div class="finding-card">
+                    <div class="finding-header">
+                        <span class="sev-tag sev-high">HIGH</span>
+                        <h3 class="finding-title">Insecure Authentication (tx.origin)</h3>
+                    </div>
+                    <div class="finding-loc"><strong>Location:</strong> <code>Authorization check</code></div>
+                    <p class="finding-desc">Using tx.origin for authorization makes the contract vulnerable to phishing and proxy forwarding attacks. Use msg.sender instead.</p>
+                    
+                    <details class="remediation-details">
+                        <summary>View Recommended Code Fix (Replace tx.origin with msg.sender)</summary>
+                        <pre class="diff-block"><code>-   require(tx.origin == owner, &quot;Not owner&quot;);
++   // msg.sender represents the immediate caller (prevents phishing proxies)
++   require(msg.sender == owner, &quot;Not owner&quot;);</code></pre>
+                    </details>
+                    
+                </div>
+                
+                <div class="finding-card">
+                    <div class="finding-header">
+                        <span class="sev-tag sev-medium">MEDIUM</span>
+                        <h3 class="finding-title">Unchecked Return Value</h3>
+                    </div>
+                    <div class="finding-loc"><strong>Location:</strong> <code>.call() invocation</code></div>
+                    <p class="finding-desc">Low-level .call detected without explicit return boolean verification. Silent failures can lead to unexpected state desynchronization.</p>
+                    
+                    <details class="remediation-details">
+                        <summary>View Recommended Code Fix (Validate Low-Level Call Success Boolean)</summary>
+                        <pre class="diff-block"><code>-   recipient.call{value: amount}(&quot;&quot;);
++   (bool success, ) = recipient.call{value: amount}(&quot;&quot;);
++   require(success, &quot;External call failed&quot;);</code></pre>
+                    </details>
+                    
+                </div>
+                
+        </div>
+
+        <div class="section-box">
+            <h2>Actionable Recommendations</h2>
+            <ul class="recs-list">
+                <li>Apply OpenZeppelin&#x27;s ReentrancyGuard and adhere to the Checks-Effects-Interactions pattern.</li><li>Replace tx.origin with msg.sender for access control verification.</li>
+            </ul>
+        </div>
+
+        <footer>
+            Generated by Chain-Mind Auditor &bull; Smart Contract Ingestion & Security Analysis Engine
+        </footer>
+    </div>
+</body>
+</html>

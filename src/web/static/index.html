@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chain-Mind Auditor — Blockchain Security & Ingestion Command Center</title>
+  <meta name="description" content="Production-grade smart contract security auditing, DSA sliding window anomaly detection, and continuous mempool evaluation.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- ======================================================================
+       Top Header & Navigation Bar
+       ====================================================================== -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="brand-logo">⚡</div>
+      <div class="brand-title-group">
+        <h1>CHAIN-MIND <span style="font-size: 0.8rem; font-weight: 500; color: var(--accent-cyan);">SOC v2.0</span></h1>
+        <p>Blockchain Security & Threat Intelligence</p>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab active" data-tab="tab-dashboard" id="navDashboardBtn">
+        <span>📊</span> Dashboard
+      </button>
+      <button class="nav-tab" data-tab="tab-demo" id="navDemoBtn">
+        <span>🎬</span> Demo Mode
+      </button>
+      <button class="nav-tab" data-tab="tab-auditor" id="navAuditorBtn">
+        <span>🛡️</span> Contract Auditor
+      </button>
+      <button class="nav-tab" data-tab="tab-mempool" id="navMempoolBtn">
+        <span>⚡</span> Continuous Mempool
+      </button>
+      <button class="nav-tab" data-tab="tab-history" id="navHistoryBtn">
+        <span>📜</span> Audit History
+      </button>
+      <button class="nav-tab" data-tab="tab-settings" id="navSettingsBtn">
+        <span id="settingsLockIcon">🔒</span> Settings
+      </button>
+    </nav>
+
+    <!-- Top Status HUD -->
+    <div class="hud-indicators">
+      <div class="badge badge-green" id="hudSystemStatus">
+        <span class="pulse-dot"></span> <span id="hudStatusText">RESILIENT MODE</span>
+      </div>
+      <div class="badge badge-cyan" id="hudChainBadge">
+        <span>⛓️</span> <span id="hudChainText">ETHEREUM</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ======================================================================
+       Main App Container
+       ====================================================================== -->
+  <main class="app-container">
+
+    <!-- ====================================================================
+         TAB 1: OPERATIONS DASHBOARD
+         ==================================================================== -->
+    <section id="tab-dashboard" class="tab-pane active">
+      <!-- Top Stat Grid -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(0, 240, 255, 0.12); color: var(--accent-cyan);">🛡️</div>
+          <div>
+            <div class="stat-val" id="dashTotalAudits">--</div>
+            <div class="stat-label">Total Audits Run</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(244, 63, 94, 0.12); color: var(--accent-crimson);">⚠️</div>
+          <div>
+            <div class="stat-val" id="dashHighRiskAudits">--</div>
+            <div class="stat-label">Critical Risks Flagged</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(245, 158, 11, 0.12); color: var(--accent-amber);">⚡</div>
+          <div>
+            <div class="stat-val" id="dashMempoolAnomalies">--</div>
+            <div class="stat-label">Mempool Anomalies</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--accent-emerald);">🛡️</div>
+          <div>
+            <div class="stat-val" id="dashInjectionsBlocked">--</div>
+            <div class="stat-label">Injections Neutralized</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header">
+          <div class="card-title">🚀 Quick Actions</div>
+          <div class="card-subtitle">Launch core pipelines instantly</div>
+        </div>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="switchTab('tab-demo'); loadDemoPreset('vulnerable_vault');">
+            ▶️ Run Vulnerable Vault Demo
+          </button>
+          <button class="btn btn-secondary" onclick="switchTab('tab-auditor'); openSampleSuiteDemo();">
+            🔗 Batch Audit Interconnected Suite
+          </button>
+          <button class="btn btn-secondary" onclick="switchTab('tab-mempool'); startContinuousMempool();">
+            ⚡ Start Continuous Mempool Stream
+          </button>
+          <button class="btn btn-secondary" onclick="switchTab('tab-history');">
+            📜 View Audits & Anomaly Trail
+          </button>
+        </div>
+      </div>
+
+      <!-- Credentials & Capability Readiness Matrix -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🔑 Credentials & Capability Matrix</div>
+            <div class="card-subtitle">Clear record of API keys and system requirements for every operation</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('tab-settings');">⚙️ Manage Keys</button>
+        </div>
+        <div class="matrix-grid" id="credentialsMatrixGrid">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         TAB 2: DEMO PRESENTATION MODE
+         ==================================================================== -->
+    <section id="tab-demo" class="tab-pane">
+      <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🎬 Precise Demo Presentation Mode</div>
+            <div class="card-subtitle">Guided step-by-step walkthrough showing algorithmic sanitization, DSA sliding window, and GenAI audit</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" onclick="loadDemoPreset('vulnerable_vault')">VulnerableVault.sol</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadDemoPreset('safe_erc20')">SafeERC20.sol</button>
+            <button class="btn btn-primary btn-sm" id="btnAutoPlayDemo" onclick="runAutoPlayDemo()">▶️ Auto-Play Walkthrough</button>
+          </div>
+        </div>
+
+        <!-- 4-Step Pipeline Visualizer -->
+        <div class="demo-stepper">
+          <div class="step-card active" id="demoStep1Card" onclick="goToDemoStep(1)">
+            <div class="step-num">Step 1 — Ingestion</div>
+            <div class="step-title">Sanitization & Guardrails</div>
+            <div class="step-desc">Regex comment strip & prompt injection neutralizer</div>
+          </div>
+          <div class="step-card" id="demoStep2Card" onclick="goToDemoStep(2)">
+            <div class="step-num">Step 2 — Calldata & DSA</div>
+            <div class="step-title">Sliding Window & Selectors</div>
+            <div class="step-desc">4-byte selector decoding & O(1) burst rate tracking</div>
+          </div>
+          <div class="step-card" id="demoStep3Card" onclick="goToDemoStep(3)">
+            <div class="step-num">Step 3 — Security Engine</div>
+            <div class="step-title">GenAI & Heuristics</div>
+            <div class="step-desc">XML context isolation & vulnerability rules</div>
+          </div>
+          <div class="step-card" id="demoStep4Card" onclick="goToDemoStep(4)">
+            <div class="step-num">Step 4 — Presentation</div>
+            <div class="step-title">Remediation & Export</div>
+            <div class="step-desc">Git diff patch, SARIF v2.1.0, and interactive HTML</div>
+          </div>
+        </div>
+
+        <!-- Step Detail Display -->
+        <div id="demoStepContainer" style="background: rgba(11, 16, 28, 0.8); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 1.25rem;">
+          <div id="demoStepContent">
+            <!-- Dynamic step contents rendered here -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         TAB 3: CONTRACT AUDITOR (SINGLE & BATCH WITH RELATIONSHIP GRAPH)
+         ==================================================================== -->
+    <section id="tab-auditor" class="tab-pane">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+        
+        <!-- Left: Contract Input & Selection -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📝 Smart Contract Input</div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn btn-secondary btn-sm" id="btnSingleMode" onclick="setAuditorMode('single')">Single</button>
+              <button class="btn btn-secondary btn-sm" id="btnBatchMode" onclick="setAuditorMode('batch')">Batch / Multi</button>
+            </div>
+          </div>
+
+          <!-- Single Contract Input -->
+          <div id="singleInputSection">
+            <div class="form-group">
+              <label class="form-label">Contract Source (Solidity Code or Paste):</label>
+              <textarea class="textarea" id="contractSourceInput" rows="12" placeholder="// Paste Solidity code here or choose a sample below..."></textarea>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="loadSampleToEditor('vulnerable_vault')">Load Vulnerable Vault</button>
+              <button class="btn btn-secondary btn-sm" onclick="loadSampleToEditor('safe_erc20')">Load Safe ERC20</button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Or Audit Verified Contract by Address:</label>
+              <div style="display: flex; gap: 0.5rem;">
+                <input type="text" class="input" id="contractAddressInput" placeholder="0xdAC17F958D2ee523a2206206994597C13D831ec7" style="font-family: var(--font-mono);">
+                <select class="select" id="contractChainSelect" style="width: 140px;">
+                  <option value="ethereum">Ethereum</option>
+                  <option value="arbitrum">Arbitrum</option>
+                  <option value="polygon">Polygon</option>
+                  <option value="optimism">Optimism</option>
+                  <option value="base">Base</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem;">
+              <button class="btn btn-primary" id="btnRunSingleAudit" onclick="executeSingleAudit()">
+                🛡️ Run Contract Audit
+              </button>
+              <button class="btn btn-secondary" onclick="detectRelationshipsForCurrentCode()">
+                🔗 Detect Connected Dependencies
+              </button>
+            </div>
+          </div>
+
+          <!-- Batch Input Section -->
+          <div id="batchInputSection" style="display: none;">
+            <div style="margin-bottom: 1rem;">
+              <p style="font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 0.75rem;">
+                Audit interconnected systems: Evaluates multiple contracts, maps inheritance hierarchies, interfaces, and cross-contract interactions.
+              </p>
+              <button class="btn btn-secondary" onclick="openSampleSuiteDemo()">
+                ⚡ Load DeFi Yield Staking Sample Suite (4 Connected Contracts)
+              </button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Contracts in Current Batch:</label>
+              <div id="batchFileList" style="display: flex; flex-direction: column; gap: 0.4rem; max-height: 220px; overflow-y: auto;">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+              <button class="btn btn-primary" id="btnRunBatchAudit" onclick="executeBatchAudit()">
+                🛡️ Audit Complete Connected Batch
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Contract Relationship Graph & Dependency Map -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🔗 Dependency & Relationship Graph</div>
+              <div class="card-subtitle">Automated inheritance, library, and interface discovery</div>
+            </div>
+            <span class="badge badge-cyan" id="relationshipCountBadge">0 Connections</span>
+          </div>
+
+          <div id="dependencyGraphContainer" class="graph-container">
+            <div style="text-align: center; color: var(--color-text-muted); margin: auto;">
+              No relationships mapped yet. Click "Detect Connected Dependencies" or load a batch suite.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Results Panel -->
+      <div class="card" id="auditResultsCard" style="display: none;">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="auditResultTitle">🛡️ Audit Security Report</div>
+            <div class="card-subtitle" id="auditResultSubtitle">--</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" onclick="downloadCurrentAuditJSON()">⬇️ JSON</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadCurrentAuditHTML()">⬇️ HTML</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadCurrentAuditSARIF()">⬇️ SARIF v2.1.0</button>
+            <button class="btn btn-secondary btn-sm" onclick="downloadCurrentAuditPatch()">⬇️ Diff Patch</button>
+          </div>
+        </div>
+
+        <!-- Top Result Summary HUD -->
+        <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap;">
+          <div class="badge" id="auditRiskScoreBadge" style="font-size: 0.9rem; padding: 0.4rem 1rem;">Risk Score: --/10</div>
+          <div class="badge badge-cyan" id="auditInjectionsBadge">Injections Neutralized: 0</div>
+          <div class="badge badge-green" id="auditFunctionsBadge">Functions Analyzed: 0</div>
+        </div>
+
+        <p id="auditExecutiveSummary" style="font-size: 0.9rem; color: var(--color-text-primary); margin-bottom: 1.25rem; line-height: 1.6;"></p>
+
+        <!-- Findings List -->
+        <h4 style="font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--color-text-secondary);">Identified Security Vulnerabilities:</h4>
+        <div id="auditFindingsList">
+          <!-- Dynamic findings cards -->
+        </div>
+
+        <!-- Remediation Diff -->
+        <h4 style="font-size: 0.95rem; margin: 1.25rem 0 0.75rem; color: var(--color-text-secondary);">Remediation Unified Patch:</h4>
+        <pre class="code-box" id="auditPatchBox" style="color: #4ade80;">// Remediation patch preview will appear here</pre>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         TAB 4: CONTINUOUS MEMPOOL STREAMER (WITH TRAFFIC LIGHTS & INSTANT INSIGHTS)
+         ==================================================================== -->
+    <section id="tab-mempool" class="tab-pane">
+      
+      <!-- Traffic Light Signal Box -->
+      <div class="traffic-signal-box">
+        <div class="traffic-lights">
+          <div class="light-dot light-green lit" id="signalGreen"></div>
+          <div class="light-dot light-yellow" id="signalYellow"></div>
+          <div class="light-dot light-red" id="signalRed"></div>
+        </div>
+        <div class="traffic-status-text">
+          <h4 id="trafficSignalTitle">SIGNAL: ALL CLEAR (SAFE TRANSACTION FLOW)</h4>
+          <div class="traffic-one-liner green-text" id="trafficOneLiner">
+            Continuous evaluation active: standard routine calls observed with normal transaction frequency.
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-danger btn-sm" id="btnViewLatestAnomaly" style="display: none;" onclick="openLatestAnomalyInsights()">
+            🚨 View Anomaly Insights Report
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls Card -->
+      <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="card-header">
+          <div>
+            <div class="card-title">⚡ Continuous Mempool Stream Controls</div>
+            <div class="card-subtitle">Infinite live pending transaction analysis with sliding-window DSA anomaly detection</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <select class="select" id="mempoolModeSelect" style="width: 170px;">
+              <option value="simulated">Simulated (MEV & Bursts)</option>
+              <option value="live">Live Web3 WebSocket</option>
+            </select>
+            <button class="btn btn-primary" id="btnToggleMempool" onclick="toggleContinuousMempool()">
+              ▶️ Start Stream
+            </button>
+            <button class="btn btn-secondary" onclick="clearMempoolFeed()">
+              🧹 Clear Feed
+            </button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 1.5rem; font-size: 0.82rem; color: var(--color-text-secondary); font-family: var(--font-mono);">
+          <div>Evaluated: <span id="mempoolCountProcessed" style="color: var(--color-text-primary); font-weight: 700;">0</span></div>
+          <div>Normal 🟢: <span id="mempoolCountGreen" style="color: #34d399; font-weight: 700;">0</span></div>
+          <div>Warnings 🟡: <span id="mempoolCountYellow" style="color: #fbbf24; font-weight: 700;">0</span></div>
+          <div>Anomalies 🔴: <span id="mempoolCountRed" style="color: #fb7185; font-weight: 700;">0</span></div>
+        </div>
+      </div>
+
+      <!-- Real-Time Stream Table Header & Feed -->
+      <div class="card">
+        <div style="display: grid; grid-template-columns: 80px 140px 120px 100px 1fr 140px; gap: 0.75rem; padding: 0.5rem 0.9rem; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; border-bottom: 1px solid var(--border-subtle); margin-bottom: 0.5rem;">
+          <div>Signal</div>
+          <div>Tx Hash</div>
+          <div>Sender</div>
+          <div>Selector</div>
+          <div>Decoded Call & Classification</div>
+          <div>Burst (T=10s)</div>
+        </div>
+
+        <div class="mempool-feed" id="mempoolFeed">
+          <div style="text-align: center; color: var(--color-text-muted); padding: 2rem;">
+            Stream is currently paused. Click "Start Stream" to begin continuous mempool evaluation.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         TAB 5: AUDIT & ANOMALY HISTORY (PAGINATED 'SHOWING 1-10 OF 250')
+         ==================================================================== -->
+    <section id="tab-history" class="tab-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📜 Audit Trail & Anomaly Persistence Log</div>
+            <div class="card-subtitle">Complete SQLite historical records with paginated navigation</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" id="btnHistContractsTab" onclick="setHistorySubTab('contracts')">Contract Audits</button>
+            <button class="btn btn-secondary btn-sm" id="btnHistMempoolTab" onclick="setHistorySubTab('mempool')">Mempool Anomalies</button>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem;">
+          <input type="text" class="input" id="historySearchInput" placeholder="Search target address, tx hash, or summary..." style="max-width: 380px;" oninput="debounceHistorySearch()">
+          <button class="btn btn-secondary btn-sm" onclick="loadHistoryData()">🔄 Refresh</button>
+        </div>
+
+        <!-- Table Container -->
+        <div class="table-container">
+          <table class="data-table" id="historyTable">
+            <thead id="historyTableHead">
+              <!-- Dynamically rendered -->
+            </thead>
+            <tbody id="historyTableBody">
+              <!-- Dynamically rendered -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Bar ("Showing 1-10 of 250") -->
+        <div class="pagination-bar">
+          <div class="pagination-counter" id="historyPaginationCounter">
+            Showing 0-0 of 0
+          </div>
+          <div class="pagination-controls">
+            <button class="btn btn-secondary btn-sm" id="btnHistPrev" onclick="prevHistoryPage()">← Previous</button>
+            <span id="historyPageNumber" style="font-size: 0.85rem; font-family: var(--font-mono); padding: 0 0.5rem;">Page 1</span>
+            <button class="btn btn-secondary btn-sm" id="btnHistNext" onclick="nextHistoryPage()">Next →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         TAB 6: SETTINGS & CREDENTIALS (AUTHENTICATED WITH SAVE SETTINGS)
+         ==================================================================== -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="card" style="max-width: 800px; margin: 0 auto;">
+        <div class="card-header">
+          <div>
+            <div class="card-title">⚙️ System Configuration & API Credentials</div>
+            <div class="card-subtitle">Manage Gemini API keys, Explorer endpoints, and DSA anomaly parameters</div>
+          </div>
+          <div class="badge badge-green" id="settingsAuthStatusBadge">Authenticated</div>
+        </div>
+
+        <form id="settingsForm" onsubmit="handleSaveSettings(event)">
+          
+          <h4 style="font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--accent-cyan);">1. AI & LLM Security Engine</h4>
+          <div class="form-group">
+            <label class="form-label">Gemini API Key (Required for Strict Mode / GenAI LLM Analysis):</label>
+            <input type="password" class="input" id="cfgGeminiKey" placeholder="AIzaSy...">
+            <small style="color: var(--color-text-muted); font-size: 0.75rem;">Used for defensive XML context isolation and deep semantic vulnerability reasoning.</small>
+          </div>
+
+          <h4 style="font-size: 0.95rem; margin: 1.25rem 0 0.75rem; color: var(--accent-cyan);">2. Blockchain Explorers (Contract Ingestion)</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Etherscan API Key (Ethereum Mainnet):</label>
+              <input type="password" class="input" id="cfgEtherscanKey" placeholder="Your Etherscan Key">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Arbiscan API Key (Arbitrum):</label>
+              <input type="password" class="input" id="cfgArbiscanKey" placeholder="Your Arbiscan Key">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Polygonscan API Key (Polygon):</label>
+              <input type="password" class="input" id="cfgPolygonscanKey" placeholder="Your Polygonscan Key">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Basescan API Key (Base):</label>
+              <input type="password" class="input" id="cfgBasescanKey" placeholder="Your Basescan Key">
+            </div>
+          </div>
+
+          <h4 style="font-size: 0.95rem; margin: 1.25rem 0 0.75rem; color: var(--accent-cyan);">3. Web3 RPC & Mempool Endpoints</h4>
+          <div class="form-group">
+            <label class="form-label">Ethereum WebSocket RPC URL:</label>
+            <input type="text" class="input" id="cfgEthRpcWs" placeholder="wss://ethereum-rpc.publicnode.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ethereum HTTP RPC URL:</label>
+            <input type="text" class="input" id="cfgEthRpcHttp" placeholder="https://ethereum.publicnode.com">
+          </div>
+
+          <h4 style="font-size: 0.95rem; margin: 1.25rem 0 0.75rem; color: var(--accent-cyan);">4. Core Engine Parameters (DSA Sliding Window)</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Sliding Window Time (Seconds):</label>
+              <input type="number" step="0.5" class="input" id="cfgWindowSeconds" value="10.0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Anomaly Tx Count Threshold:</label>
+              <input type="number" class="input" id="cfgAnomalyThreshold" value="5">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 0.5rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="checkbox" id="cfgStrictMode">
+              <span><strong>Strict Real Mode</strong> (Rejects heuristic fallbacks; raises exact API/LLM errors)</span>
+            </label>
+          </div>
+
+          <h4 style="font-size: 0.95rem; margin: 1.25rem 0 0.75rem; color: var(--accent-cyan);">5. Security Admin Passcode</h4>
+          <div class="form-group">
+            <label class="form-label">Change Admin Passcode (Optional):</label>
+            <input type="password" class="input" id="cfgNewPasscode" placeholder="Enter new passcode to update">
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+            <button type="submit" class="btn btn-primary" id="btnSaveSettings">
+              💾 Save Settings
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======================================================================
+       Modals: Authentication, Error Diagnostic, Anomaly Insights, Detail View
+       ====================================================================== -->
+
+  <!-- Settings Auth Passcode Modal -->
+  <div class="modal-backdrop" id="authModalBackdrop">
+    <div class="modal-box" style="max-width: 440px;">
+      <div class="modal-title">🔒 Admin Authentication</div>
+      <p style="font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 1rem;">
+        The Settings area contains critical API credentials and engine parameters. Please authenticate to continue.
+      </p>
+      <form onsubmit="handleAuthSubmit(event)">
+        <div class="form-group">
+          <label class="form-label">Admin Passcode:</label>
+          <input type="password" class="input" id="authPasscodeInput" placeholder="Default: chainmind-admin" autofocus required>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeAuthModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Unlock Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Diagnostic Error Modal -->
+  <div class="modal-backdrop" id="errorModalBackdrop">
+    <div class="modal-box">
+      <button class="modal-close-btn" onclick="closeErrorModal()">✕</button>
+      <div class="modal-title error-box-header">
+        <span>⚠️</span> <span id="errorModalTitle">Execution Error</span>
+      </div>
+      <p id="errorModalMessage" style="font-size: 0.92rem; margin-bottom: 0.75rem;"></p>
+      
+      <div id="errorModalDetailsBox" style="display: none; margin-bottom: 1rem;">
+        <label class="form-label">Technical Details:</label>
+        <pre class="code-box" id="errorModalDetails" style="color: #fb7185; font-size: 0.78rem; max-height: 140px;"></pre>
+      </div>
+
+      <div id="errorModalSuggestionsBox" style="display: none;">
+        <label class="form-label">Actionable Suggestions & Fixes:</label>
+        <ul class="error-suggestions-list" id="errorModalSuggestions">
+          <!-- Dynamic suggestions -->
+        </ul>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
+        <button class="btn btn-secondary" onclick="closeErrorModal()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detailed Anomaly Insights Modal -->
+  <div class="modal-backdrop" id="anomalyModalBackdrop">
+    <div class="modal-box" style="max-width: 700px;">
+      <button class="modal-close-btn" onclick="closeAnomalyModal()">✕</button>
+      <div class="modal-title" style="color: var(--accent-crimson);">
+        <span>🚨</span> <span id="anomalyModalTitle">Anomaly Insights Report</span>
+      </div>
+      <div class="badge badge-red" id="anomalyModalSeverity" style="margin-bottom: 1rem;">CRITICAL</div>
+
+      <div style="font-size: 0.88rem; margin-bottom: 1rem; line-height: 1.5;" id="anomalyModalReason">
+        <!-- Detection reason -->
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+        <div style="background: rgba(8, 12, 22, 0.8); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem; font-family: var(--font-mono);">
+          <div style="color: var(--color-text-muted);">Attacker / Sender:</div>
+          <div id="anomalyModalAttacker" style="color: #fb7185; word-break: break-all;">--</div>
+        </div>
+        <div style="background: rgba(8, 12, 22, 0.8); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem; font-family: var(--font-mono);">
+          <div style="color: var(--color-text-muted);">Victim / Target:</div>
+          <div id="anomalyModalTarget" style="color: var(--accent-cyan); word-break: break-all;">--</div>
+        </div>
+      </div>
+
+      <h5 style="font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 0.35rem;">Impact Assessment:</h5>
+      <p id="anomalyModalImpact" style="font-size: 0.82rem; color: var(--color-text-primary); margin-bottom: 1rem;"></p>
+
+      <h5 style="font-size: 0.85rem; color: var(--color-text-secondary); margin-bottom: 0.35rem;">Actionable Mitigations:</h5>
+      <ul class="error-suggestions-list" id="anomalyModalMitigations" style="margin-bottom: 1.25rem;">
+        <!-- Mitigations -->
+      </ul>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button class="btn btn-secondary btn-sm" onclick="downloadCurrentAnomalyReport()">⬇️ Download Report JSON</button>
+        <button class="btn btn-secondary btn-sm" onclick="closeAnomalyModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Historical Audit Detail Modal -->
+  <div class="modal-backdrop" id="auditDetailModalBackdrop">
+    <div class="modal-box" style="max-width: 720px;">
+      <button class="modal-close-btn" onclick="closeAuditDetailModal()">✕</button>
+      <div class="modal-title">🛡️ Historical Audit Detail</div>
+      <div id="auditDetailContent">
+        <!-- Dynamically rendered -->
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
+        <button class="btn btn-secondary" onclick="closeAuditDetailModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- App Script -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
