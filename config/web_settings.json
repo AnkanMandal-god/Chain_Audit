@@ -1,5 +1,5 @@
 {
-  "admin_passcode": "chainmind-admin",
+  "admin_passcode": "chainmind",
   "gemini_api_key": "",
   "etherscan_api_key": "",
   "arbiscan_api_key": "",
@@ -9,7 +9,7 @@
   "eth_rpc_ws_url": "wss://ethereum-rpc.publicnode.com",
   "eth_rpc_http_url": "https://ethereum.publicnode.com",
   "default_chain": "ethereum",
-  "strict_mode": false,
+  "strict_mode": true,
   "sliding_window_seconds": 10.0,
   "anomaly_tx_threshold": 5
 }

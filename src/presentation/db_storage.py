@@ -6,11 +6,13 @@ for audit trail verification, historical risk analytics, and security reporting.
 """
 import sqlite3
 import json
+import logging
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from config.settings import BASE_DIR
 
+logger = logging.getLogger("ChainMind.Storage")
 DB_PATH = BASE_DIR / "audit_history.db"
 
 
@@ -18,6 +20,10 @@ class AuditDatabase:
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or DB_PATH
         self._init_db()
+        try:
+            self.cleanup_old_routine_records(days=7)
+        except Exception as e:
+            logger.debug(f"Initial routine records cleanup: {e}")
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
@@ -58,7 +64,7 @@ class AuditDatabase:
                     frequency_count INTEGER NOT NULL,
                     window_seconds REAL NOT NULL,
                     anomaly_reason TEXT,
-                    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    detected_at TEXT NOT NULL
                 );
             """)
 
@@ -72,6 +78,28 @@ class AuditDatabase:
                 ON mempool_anomalies (sender, detected_at);
             """)
             conn.commit()
+
+    def cleanup_old_routine_records(self, days: int = 7) -> int:
+        """
+        Deletes routine/safe mempool records (STANDARD_CALL, ETH_TRANSFER)
+        that are older than 7 days. Flagged anomalies and security alerts are kept.
+        """
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM mempool_anomalies
+                WHERE classification IN ('STANDARD_CALL', 'ETH_TRANSFER')
+                  AND (
+                      detected_at < ?
+                      OR detected_at < datetime('now', '-' || ? || ' days')
+                  )
+            """, (cutoff_iso, days))
+            deleted = cursor.rowcount
+            conn.commit()
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} safe/routine mempool records older than {days} days.")
+            return deleted
 
     def save_contract_audit(self, report: Dict[str, Any]) -> int:
         """Saves a contract audit report into the database."""
@@ -97,24 +125,25 @@ class AuditDatabase:
             return cursor.lastrowid
 
     def save_mempool_anomaly(self, tx_data: Dict[str, Any], anomaly_data: Dict[str, Any]) -> int:
-        """Saves a flagged mempool anomaly into the database."""
-        tx_hash = str(tx_data.get("tx_hash", "0x0"))
-        sender = str(tx_data.get("sender", "0x0"))
-        target = str(tx_data.get("target", "0x0"))
+        """Saves a mempool transaction or anomaly with an ISO-8601 UTC timestamp."""
+        tx_hash = str(tx_data.get("tx_hash") or tx_data.get("hash") or "0x0")
+        sender = str(tx_data.get("sender") or tx_data.get("from") or "0x0")
+        target = str(tx_data.get("target") or tx_data.get("to") or "0x0")
         selector = str(tx_data.get("function_selector") or "0x")
-        classification = str(tx_data.get("payload_classification", "STANDARD_CALL"))
+        classification = str(tx_data.get("classification") or tx_data.get("payload_classification") or "STANDARD_CALL")
         count = int(anomaly_data.get("count_in_window", 1))
         window = float(anomaly_data.get("window_seconds", 10.0))
-        reason = str(anomaly_data.get("anomaly_reason", "High frequency transaction burst"))
+        reason = str(anomaly_data.get("anomaly_reason") or tx_data.get("anomaly_reason") or "Elevated mempool transaction activity")
+        detected_at = datetime.now(timezone.utc).isoformat()
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO mempool_anomalies (
                     tx_hash, sender, target, function_selector, classification,
-                    frequency_count, window_seconds, anomaly_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (tx_hash, sender, target, selector, classification, count, window, reason))
+                    frequency_count, window_seconds, anomaly_reason, detected_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (tx_hash, sender, target, selector, classification, count, window, reason, detected_at))
             conn.commit()
             return cursor.lastrowid
 
@@ -144,39 +173,35 @@ class AuditDatabase:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 
-    def get_audits_paginated(self, page: int = 1, page_size: int = 10, search: str = "") -> Dict[str, Any]:
-        """Retrieves paginated contract audits with total count for 'showing 1-10 of X' display."""
+    def get_audits_paginated(self, page: int = 1, page_size: int = 10, search: str = "",
+                              risk_min: int = 0, risk_max: int = 10, sort_order: str = "desc") -> Dict[str, Any]:
+        """Retrieves paginated contract audits with risk level and sort filtering."""
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
         offset = (page - 1) * page_size
+        order = "ASC" if sort_order == "asc" else "DESC"
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            conditions = ["risk_score >= ?", "risk_score <= ?"]
+            params: list = [risk_min, risk_max]
+
             if search.strip():
+                conditions.append("(target_address LIKE ? OR summary LIKE ?)")
                 query_term = f"%{search.strip()}%"
-                cursor.execute("""
-                    SELECT COUNT(*) FROM contract_audits
-                    WHERE target_address LIKE ? OR summary LIKE ?
-                """, (query_term, query_term))
-                total = cursor.fetchone()[0]
+                params.extend([query_term, query_term])
 
-                cursor.execute("""
-                    SELECT id, target_address, analysis_type, risk_score, summary, detected_injections, audit_timestamp, created_at
-                    FROM contract_audits
-                    WHERE target_address LIKE ? OR summary LIKE ?
-                    ORDER BY id DESC
-                    LIMIT ? OFFSET ?
-                """, (query_term, query_term, page_size, offset))
-            else:
-                cursor.execute("SELECT COUNT(*) FROM contract_audits")
-                total = cursor.fetchone()[0]
+            where_clause = "WHERE " + " AND ".join(conditions)
 
-                cursor.execute("""
-                    SELECT id, target_address, analysis_type, risk_score, summary, detected_injections, audit_timestamp, created_at
-                    FROM contract_audits
-                    ORDER BY id DESC
-                    LIMIT ? OFFSET ?
-                """, (page_size, offset))
+            cursor.execute(f"SELECT COUNT(*) FROM contract_audits {where_clause}", params)
+            total = cursor.fetchone()[0]
+
+            cursor.execute(f"""
+                SELECT id, target_address, analysis_type, risk_score, summary, detected_injections, audit_timestamp, created_at
+                FROM contract_audits {where_clause}
+                ORDER BY id {order}
+                LIMIT ? OFFSET ?
+            """, params + [page_size, offset])
 
             rows = cursor.fetchall()
             items = [dict(row) for row in rows]
@@ -192,39 +217,44 @@ class AuditDatabase:
                 "showing_to": min(offset + page_size, total)
             }
 
-    def get_anomalies_paginated(self, page: int = 1, page_size: int = 10, search: str = "") -> Dict[str, Any]:
-        """Retrieves paginated mempool anomalies with total count for 'showing 1-10 of X' display."""
+    def get_anomalies_paginated(self, page: int = 1, page_size: int = 10, search: str = "",
+                                 classification: str = "", sort_order: str = "desc") -> Dict[str, Any]:
+        """Retrieves paginated mempool anomalies with classification and sort filtering."""
+        try:
+            self.cleanup_old_routine_records(days=7)
+        except Exception as e:
+            logger.debug(f"Routine retention cleanup error: {e}")
+
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
         offset = (page - 1) * page_size
+        order = "ASC" if sort_order == "asc" else "DESC"
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            conditions: list = []
+            params: list = []
+
             if search.strip():
+                conditions.append("(tx_hash LIKE ? OR sender LIKE ? OR target LIKE ? OR classification LIKE ?)")
                 query_term = f"%{search.strip()}%"
-                cursor.execute("""
-                    SELECT COUNT(*) FROM mempool_anomalies
-                    WHERE tx_hash LIKE ? OR sender LIKE ? OR target LIKE ? OR classification LIKE ?
-                """, (query_term, query_term, query_term, query_term))
-                total = cursor.fetchone()[0]
+                params.extend([query_term, query_term, query_term, query_term])
 
-                cursor.execute("""
-                    SELECT id, tx_hash, sender, target, function_selector, classification, frequency_count, window_seconds, anomaly_reason, detected_at
-                    FROM mempool_anomalies
-                    WHERE tx_hash LIKE ? OR sender LIKE ? OR target LIKE ? OR classification LIKE ?
-                    ORDER BY id DESC
-                    LIMIT ? OFFSET ?
-                """, (query_term, query_term, query_term, query_term, page_size, offset))
-            else:
-                cursor.execute("SELECT COUNT(*) FROM mempool_anomalies")
-                total = cursor.fetchone()[0]
+            if classification and classification.strip():
+                conditions.append("classification LIKE ?")
+                params.append(f"%{classification.strip()}%")
 
-                cursor.execute("""
-                    SELECT id, tx_hash, sender, target, function_selector, classification, frequency_count, window_seconds, anomaly_reason, detected_at
-                    FROM mempool_anomalies
-                    ORDER BY id DESC
-                    LIMIT ? OFFSET ?
-                """, (page_size, offset))
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+            cursor.execute(f"SELECT COUNT(*) FROM mempool_anomalies {where_clause}", params)
+            total = cursor.fetchone()[0]
+
+            cursor.execute(f"""
+                SELECT id, tx_hash, sender, target, function_selector, classification, frequency_count, window_seconds, anomaly_reason, detected_at
+                FROM mempool_anomalies {where_clause}
+                ORDER BY id {order}
+                LIMIT ? OFFSET ?
+            """, params + [page_size, offset])
 
             rows = cursor.fetchall()
             items = [dict(row) for row in rows]

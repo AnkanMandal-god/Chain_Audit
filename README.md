@@ -137,6 +137,97 @@ python -m pytest -v tests
 
 ---
 
+## Web Operations Workspace
+
+The browser experience is the primary operational interface. It is served by
+the same FastAPI application as the API and does not require a separate
+frontend build step.
+
+### Start the web application
+
+```bash
+python main.py web --host 0.0.0.0 --port 5000
+```
+
+Open the root URL to use the workspace. The API reference remains available at
+`/docs`, and the machine-readable OpenAPI document is available at
+`/openapi.json`.
+
+The workspace contains five areas:
+
+1. **Overview** — recent audit activity, capability readiness, and high-level
+   counts.
+2. **Contract audit** — paste Solidity source or audit a verified explorer
+   address. Batch mode loads the connected sample suite, maps relationships,
+   and audits each source.
+3. **Mempool monitor** — run the simulated stream without credentials or switch
+   to live WebSocket RPC monitoring after configuring an endpoint.
+4. **History** — search and inspect persisted contract audits and mempool
+   anomalies.
+5. **Settings** — authenticated configuration for provider credentials,
+   endpoints, engine parameters, and the admin passcode.
+
+The old interactive CLI menu is still available for command-line testing, but
+it is not part of the web product flow. Use the explicit CLI commands in the
+usage section when scripting audits or test runs.
+
+### Settings and credentials
+
+The Settings area is protected by the `admin_passcode` stored in
+`config/web_settings.json`. For a new local import, the default is
+`chainmind-admin`; change it before exposing the application beyond a private
+development environment. You can also provide `CHAINMIND_ADMIN_PASSCODE` as an
+environment variable for the initial value.
+
+Supported settings:
+
+| Setting | Purpose |
+| --- | --- |
+| Gemini API key | Enables the GenAI audit path and is required for Strict Real Mode |
+| Etherscan, Arbiscan, Polygonscan, Basescan, Optimism keys | Optional verified-source ingestion for each explorer |
+| Ethereum WebSocket RPC | Endpoint used by live mempool monitoring |
+| Ethereum HTTP RPC | HTTP fallback/provider endpoint |
+| Default network | Default chain for the workspace and mempool stream |
+| Strict Real Mode | Disables heuristic fallback and requires the configured Gemini provider |
+| Sliding window seconds | Frequency-analysis window, constrained to 1–300 seconds |
+| Anomaly transaction threshold | Transactions in the window required to flag a burst, constrained to 2–1000 |
+
+Provider credentials are write-only from the browser: the settings API returns
+only a masked value and a configured/not-configured flag. Leaving a credential
+field blank keeps the existing value. Enter a new value to rotate it. RPC
+URLs are not secret-safe if they contain provider tokens, so prefer provider
+URLs without embedded credentials and use HTTPS/WSS.
+
+The persisted web settings file is local JSON. Protect the file and avoid
+committing provider credentials. If the app is deployed, use the platform
+secret/environment-variable mechanism for initial credentials and rotate any
+credential that may have been exposed in logs or backups. Strict mode sends
+contract source to the configured LLM provider; use resilient local mode when
+source must remain local.
+
+### Web API quick reference
+
+| Method | Endpoint | Use |
+| --- | --- | --- |
+| GET | `/api/status` | Engine mode, chain, and capability matrix |
+| GET | `/api/overview` | Recent activity and aggregate record counts |
+| GET | `/api/demo/samples` | Local sample contracts and connected suite |
+| POST | `/api/audit/contract` | Audit source, local target, or explorer address |
+| POST | `/api/audit/detect-relationships` | Analyze dependencies in supplied sources |
+| POST | `/api/audit/batch` | Audit a connected set of source files |
+| GET | `/api/history/audits` | Paginated/searchable audit history |
+| GET | `/api/history/anomalies` | Paginated/searchable anomaly history |
+| POST | `/api/settings/verify-auth` | Verify the settings passcode |
+| GET/POST | `/api/settings/load`, `/api/settings/save` | Read masked settings or save configuration |
+| POST | `/api/export/html`, `/api/export/sarif`, `/api/export/patch` | Export the current report |
+| WebSocket | `/ws/mempool` | Simulated or live pending-transaction stream |
+
+The web client uses same-origin relative URLs, so it works behind the Replit
+preview proxy as well as in a local browser. For Replit, bind the server to
+`0.0.0.0:5000`.
+
+---
+
 ## Test Suite Results
 
 All 28 unit tests pass verifying:

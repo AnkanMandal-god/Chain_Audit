@@ -55,13 +55,13 @@ db = AuditDatabase()
 # Global config helper
 def load_web_settings() -> Dict[str, Any]:
     default_settings = {
-        "admin_passcode": "chainmind-admin",
+        "admin_passcode": os.getenv("CHAINMIND_ADMIN_PASSCODE", "chainmind-admin"),
         "gemini_api_key": settings.gemini_api_key or "",
         "etherscan_api_key": settings.etherscan_api_key or "",
         "arbiscan_api_key": os.getenv("ARBISCAN_API_KEY", ""),
         "polygonscan_api_key": os.getenv("POLYGONSCAN_API_KEY", ""),
         "basescan_api_key": os.getenv("BASESCAN_API_KEY", ""),
-        "optimistic_api_key": os.getenv("OPTIMISTIC_BASE_URL", ""),
+        "optimistic_api_key": os.getenv("OPTIMISTIC_API_KEY", ""),
         "eth_rpc_ws_url": settings.eth_rpc_ws_url,
         "eth_rpc_http_url": settings.eth_rpc_http_url,
         "default_chain": "ethereum",
@@ -89,6 +89,47 @@ def save_web_settings(new_settings: Dict[str, Any]):
     settings.eth_rpc_http_url = new_settings.get("eth_rpc_http_url", settings.eth_rpc_http_url)
     settings.sliding_window_seconds = float(new_settings.get("sliding_window_seconds", 10.0))
     settings.anomaly_tx_threshold = int(new_settings.get("anomaly_tx_threshold", 5))
+
+
+SECRET_SETTING_KEYS = {
+    "admin_passcode",
+    "gemini_api_key",
+    "etherscan_api_key",
+    "arbiscan_api_key",
+    "polygonscan_api_key",
+    "basescan_api_key",
+    "optimistic_api_key",
+}
+
+
+def mask_secret(value: Any) -> str:
+    """Return a non-reversible display value; secrets never leave the server."""
+    if not value:
+        return ""
+    return "••••••••" + str(value)[-4:]
+
+
+def public_settings(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose editable settings without returning credential material."""
+    return {
+        "gemini_api_key": mask_secret(cfg.get("gemini_api_key")),
+        "etherscan_api_key": mask_secret(cfg.get("etherscan_api_key")),
+        "arbiscan_api_key": mask_secret(cfg.get("arbiscan_api_key")),
+        "polygonscan_api_key": mask_secret(cfg.get("polygonscan_api_key")),
+        "basescan_api_key": mask_secret(cfg.get("basescan_api_key")),
+        "optimistic_api_key": mask_secret(cfg.get("optimistic_api_key")),
+        "configured_secrets": {
+            key: bool(cfg.get(key))
+            for key in SECRET_SETTING_KEYS
+            if key != "admin_passcode"
+        },
+        "eth_rpc_ws_url": cfg.get("eth_rpc_ws_url", ""),
+        "eth_rpc_http_url": cfg.get("eth_rpc_http_url", ""),
+        "default_chain": cfg.get("default_chain", "ethereum"),
+        "strict_mode": bool(cfg.get("strict_mode", False)),
+        "sliding_window_seconds": cfg.get("sliding_window_seconds", 10.0),
+        "anomaly_tx_threshold": cfg.get("anomaly_tx_threshold", 5),
+    }
 
 # Ensure initial config exists
 current_cfg = load_web_settings()
@@ -147,7 +188,7 @@ def get_credentials_matrix(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "name": "GenAI LLM Deep Contract Audit",
             "category": "Contract Auditing",
             "status": "ready" if has_gemini else "missing",
-            "status_label": "Ready" if has_gemini else "Missing Key",
+            "status_label": "Ready" if has_gemini else "Missing Key (Heuristic Only)",
             "required_keys": ["GEMINI_API_KEY"],
             "optional_keys": [],
             "description": "Gemini 2.0 Flash context-isolated code reasoning. Required when running in Strict Real Mode."
@@ -156,8 +197,8 @@ def get_credentials_matrix(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "action_id": "etherscan_mainnet",
             "name": "Ethereum Mainnet Verified Contract Ingestion",
             "category": "Chain Ingestion",
-            "status": "ready",
-            "status_label": "Ready (Free Tier)" if not has_etherscan else "Optimized (Custom Key)",
+            "status": "ready" if has_etherscan else "optional",
+            "status_label": "Configured (Custom Key)" if has_etherscan else "Free Tier (Rate Limited)",
             "required_keys": [],
             "optional_keys": ["ETHERSCAN_API_KEY"],
             "description": "Fetches verified source code from Etherscan API. Rate limited to 5 req/sec with token bucket."
@@ -167,30 +208,20 @@ def get_credentials_matrix(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
             "name": "Layer-2 Verified Ingestion (Arbitrum / Polygon / Base)",
             "category": "Chain Ingestion",
             "status": "ready" if (has_arbiscan or has_polygonscan or has_basescan) else "optional",
-            "status_label": "Partially Configured" if (has_arbiscan or has_polygonscan or has_basescan) else "Free Tier / Key Optional",
+            "status_label": "Configured" if (has_arbiscan or has_polygonscan or has_basescan) else "Free Tier / Key Optional",
             "required_keys": [],
             "optional_keys": ["ARBISCAN_API_KEY", "POLYGONSCAN_API_KEY", "BASESCAN_API_KEY"],
             "description": "Retrieves multi-file verified source contracts from L2 explorer APIs."
         },
         {
-            "action_id": "mempool_simulated",
-            "name": "Simulated Mempool Threat & MEV Stream",
-            "category": "Mempool Stream",
-            "status": "ready",
-            "status_label": "Fully Ready",
-            "required_keys": [],
-            "optional_keys": [],
-            "description": "High-fidelity synthetic pending transaction stream with burst attacks and MEV sandwiches. No credentials needed."
-        },
-        {
-            "action_id": "mempool_live_ws",
-            "name": "Live Web3 RPC Mempool Streaming",
+            "action_id": "mempool_real",
+            "name": "Real Live Mempool Streaming",
             "category": "Mempool Stream",
             "status": "ready" if has_eth_ws else "missing",
-            "status_label": "Ready" if has_eth_ws else "Missing RPC URL",
+            "status_label": "Ready (Live Node Configured)" if has_eth_ws else "Missing RPC Endpoint",
             "required_keys": ["ETH_RPC_WS_URL"],
             "optional_keys": [],
-            "description": "Connects to live Ethereum/L2 WebSocket node (Infura, Alchemy, or PublicNode) to capture real-time pending transactions."
+            "description": "Connects directly to real Ethereum/L2 WebSocket node to capture real-time pending transactions. Requires a valid WebSocket RPC URL."
         }
     ]
 
@@ -211,11 +242,26 @@ async def get_system_status():
         "supported_chains": list(settings.chains.keys()),
         "has_gemini_key": bool(cfg.get("gemini_api_key")),
         "has_etherscan_key": bool(cfg.get("etherscan_api_key")),
+        "has_rpc_ws": bool(cfg.get("eth_rpc_ws_url", "").strip()),
+        "eth_rpc_ws_url": mask_secret(cfg.get("eth_rpc_ws_url", "")),
         "sliding_window": {
             "window_seconds": cfg.get("sliding_window_seconds", 10.0),
             "anomaly_threshold": cfg.get("anomaly_tx_threshold", 5)
         },
         "credentials_matrix": matrix
+    }
+
+
+@app.get("/api/overview")
+async def get_overview():
+    """Small aggregate payload for the operations overview."""
+    audits = db.get_audits_paginated(page=1, page_size=6)
+    anomalies = db.get_anomalies_paginated(page=1, page_size=6)
+    return {
+        "recent_audits": audits["items"],
+        "recent_anomalies": anomalies["items"],
+        "audit_total": audits["total"],
+        "anomaly_total": anomalies["total"],
     }
 
 
@@ -431,49 +477,99 @@ async def audit_batch(req: BatchAuditRequest):
 def generate_anomaly_insights_report(
     parsed_hex: Dict[str, Any],
     window_meta: Dict[str, Any],
-    sandwich_meta: Optional[Dict[str, Any]] = None
+    sandwich_meta: Optional[Dict[str, Any]] = None,
+    classification_override: Optional[str] = None,
+    reason_override: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Prepares a detailed, actionable insights report as soon as an anomaly is observed.
     """
-    report_id = f"ANOMALY-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{parsed_hex.get('tx_hash', '0x')[-6:]}"
+    report_id = f"ANOMALY-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{str(parsed_hex.get('tx_hash', '0x'))[-6:]}"
     is_sandwich = sandwich_meta is not None and sandwich_meta.get("is_sandwich")
+    sender = str(parsed_hex.get("sender") or "0x0")
+    target_pool = parsed_hex.get("target")
+    value_eth = parsed_hex.get("value_eth", 0)
+    decoded_params = parsed_hex.get("decoded_parameters") or {}
+    
+    anomaly_type = classification_override or ("MEV_SANDWICH_ATTACK" if is_sandwich else parsed_hex.get("payload_classification", "HIGH_FREQUENCY_BURST"))
     
     if is_sandwich:
-        anomaly_type = "MEV_SANDWICH_ATTACK"
         severity = "CRITICAL"
         title = "Malicious MEV Sandwich Attack Detected"
-        reason = sandwich_meta.get("detection_reason", "Front-running and back-running victim swap around liquidity pool.")
+        reason = reason_override or sandwich_meta.get("detection_reason", "Front-running and back-running victim swap around liquidity pool.")
         attacker = sandwich_meta.get("attacker_address")
         victim = sandwich_meta.get("victim_sender")
-        target_pool = sandwich_meta.get("target_pool")
         impact = "Victim transaction suffered severe price slippage exploitation. Attacker extracted risk-free arbitrage profit from pool imbalance."
         mitigations = [
             "Submit transactions through MEV-protected RPC endpoints (e.g. Flashbots Protect, Eden Network).",
             "Enforce strict maximum slippage tolerances (e.g. <= 0.5%) on DEX trade routers.",
             "Implement commit-reveal schemes or TWAP price feeds to mitigate single-block sandwiching."
         ]
-    elif parsed_hex.get("payload_classification") == "SUSPICIOUS_HIGH_RISK_CALL":
-        anomaly_type = "SUSPICIOUS_DESTRUCTIVE_CALL"
+    elif anomaly_type == "SUSPICIOUS_HIGH_RISK_CALL":
         severity = "CRITICAL"
         title = "High-Risk Destructive Function Call Flagged"
-        reason = f"Invocation of high-risk selector {parsed_hex.get('function_selector')} ({parsed_hex.get('decoded_function_name', 'Unknown')})"
-        attacker = parsed_hex.get("sender")
+        reason = reason_override or f"Invocation of high-risk selector {parsed_hex.get('function_selector')} ({parsed_hex.get('decoded_function_name', 'Unknown')})"
+        attacker = sender
         victim = "Target Contract Holders"
-        target_pool = parsed_hex.get("target")
         impact = "Potential emergency drain or contract state liquidation attempted in mempool prior to block finality."
         mitigations = [
             "Verify caller permissions: Ensure only multisig or timelock can trigger administrative methods.",
             "Use decentralized rate limiters and multi-party approval requirements on critical withdrawal flows."
         ]
+    elif anomaly_type == "INFINITE_APPROVAL":
+        severity = "WARNING"
+        title = "Unlimited ERC20 Token Approval Detected"
+        spender = decoded_params.get("spender", "Unknown Contract")
+        reason = reason_override or f"Unlimited token allowance granted to {spender}"
+        attacker = sender
+        victim = "Wallet Assets / Token Holder"
+        impact = "Granting MAX_UINT256 allowance gives the spender contract unlimited access to all present and future tokens in the caller's wallet."
+        mitigations = [
+            "Use exact amount approvals instead of type(uint256).max.",
+            "Use EIP-2612 permit with single-use signatures where possible.",
+            "Periodically revoke allowances for unused dApps using Revoke.cash or Etherscan."
+        ]
+    elif anomaly_type == "HIGH_GAS_SPIKE":
+        severity = "WARNING"
+        gas_val = parsed_hex.get("gas_price_gwei", 0)
+        title = f"Extreme Gas Price MEV Surge Detected ({gas_val:.1f} Gwei)"
+        reason = reason_override or f"High gas price anomaly: {gas_val:.1f} Gwei"
+        attacker = sender
+        victim = "Public Mempool Priority Queue"
+        impact = "Transaction paying gas fees significantly above network average, indicating high-priority queue jumping or MEV arbitrage execution."
+        mitigations = [
+            "Use Flashbots Protect / private RPC endpoints to avoid public mempool gas auctions.",
+            "Set reasonable maxFeePerGas caps on transactions."
+        ]
+    elif anomaly_type == "LARGE_VALUE_TRANSFER":
+        severity = "CRITICAL" if value_eth >= 50 else "WARNING"
+        title = f"High-Value Transaction Transfer Flagged ({value_eth:.4f} ETH)"
+        reason = reason_override or f"High-value transfer of {value_eth:.4f} ETH detected in mempool."
+        attacker = sender
+        victim = "Whale Wallet / Exchange Liquidity"
+        impact = "Substantial on-chain liquidity movement. Potential large swap or whale liquidation in progress."
+        mitigations = [
+            "Monitor destination address for multisig/CEX deposit authenticity.",
+            "Track recipient pool for sudden price shifts."
+        ]
+    elif anomaly_type == "PROXY_UPGRADE":
+        severity = "WARNING"
+        title = "Smart Contract Upgrade / Governance Invocation"
+        reason = reason_override or f"Privileged upgrade call {parsed_hex.get('decoded_function_name', 'upgrade')} invoked."
+        attacker = sender
+        victim = "Contract Implementation & Storage"
+        impact = "Privileged state modification call detected. If not submitted by the legitimate owner or multisig, this could alter contract implementation logic."
+        mitigations = [
+            "Verify sender is authorized multisig or timelock.",
+            "Enforce timelock delays on critical proxy upgrades."
+        ]
     else:
-        anomaly_type = "HIGH_FREQUENCY_BURST_ATTACK"
-        severity = "WARNING" if window_meta.get("count_in_window", 0) <= 7 else "CRITICAL"
-        title = "High-Frequency Transaction Flooding Anomaly"
-        reason = window_meta.get("anomaly_reason", "Abnormal burst rate detected over sliding window.")
-        attacker = parsed_hex.get("sender")
+        count_in_w = window_meta.get("count_in_window", 1)
+        severity = "CRITICAL" if count_in_w >= 5 else "WARNING"
+        title = "High-Frequency Transaction Flooding Anomaly" if count_in_w >= 5 else "Elevated Sender Velocity"
+        reason = reason_override or window_meta.get("anomaly_reason", "Abnormal burst rate detected over sliding window.")
+        attacker = sender
         victim = "Network Validators & Contract Mempool"
-        target_pool = parsed_hex.get("target")
         impact = "Potential DDoS exhaustion, spam bot front-running, or automated liquidator hammering."
         mitigations = [
             "Implement sliding-window nonce and account rate limiting at smart contract entry points.",
@@ -489,13 +585,13 @@ def generate_anomaly_insights_report(
         "reason": reason,
         "transaction": {
             "tx_hash": parsed_hex.get("tx_hash"),
-            "sender": parsed_hex.get("sender"),
-            "target": parsed_hex.get("target"),
+            "sender": sender,
+            "target": target_pool,
             "function_selector": parsed_hex.get("function_selector"),
             "function_name": parsed_hex.get("decoded_function_name", "Unknown"),
-            "classification": parsed_hex.get("payload_classification"),
+            "classification": anomaly_type,
             "gas_price_gwei": parsed_hex.get("gas_price_gwei", 0),
-            "calldata_length": parsed_hex.get("calldata_length", 0)
+            "calldata_length": parsed_hex.get("calldata_length_bytes", 0)
         },
         "frequency_metrics": {
             "count_in_window": window_meta.get("count_in_window", 1),
@@ -520,20 +616,33 @@ def generate_anomaly_insights_report(
 async def get_audit_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    search: str = Query("")
+    search: str = Query(""),
+    risk_min: int = Query(0, ge=0, le=10),
+    risk_max: int = Query(10, ge=0, le=10),
+    sort_order: str = Query("desc")
 ):
-    """Returns paginated contract audits formatted for 'Showing 1-10 of X' display."""
-    return db.get_audits_paginated(page=page, page_size=page_size, search=search)
+    """Returns paginated contract audits with risk level and sort filtering."""
+    return db.get_audits_paginated(
+        page=page, page_size=page_size, search=search,
+        risk_min=risk_min, risk_max=risk_max,
+        sort_order=sort_order
+    )
 
 
 @app.get("/api/history/anomalies")
 async def get_anomaly_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    search: str = Query("")
+    search: str = Query(""),
+    classification: str = Query(""),
+    sort_order: str = Query("desc")
 ):
-    """Returns paginated mempool anomalies formatted for 'Showing 1-10 of X' display."""
-    return db.get_anomalies_paginated(page=page, page_size=page_size, search=search)
+    """Returns paginated mempool anomalies with classification and sort filtering."""
+    return db.get_anomalies_paginated(
+        page=page, page_size=page_size, search=search,
+        classification=classification,
+        sort_order=sort_order
+    )
 
 
 @app.get("/api/history/audit/{audit_id}")
@@ -573,22 +682,8 @@ async def get_settings(auth_passcode: Optional[str] = Header(None, alias="X-Admi
         raise HTTPException(status_code=401, detail="Authentication required to view settings")
 
     matrix = get_credentials_matrix(cfg)
-    # Mask secrets for display
     return {
-        "settings": {
-            "gemini_api_key": cfg.get("gemini_api_key", ""),
-            "etherscan_api_key": cfg.get("etherscan_api_key", ""),
-            "arbiscan_api_key": cfg.get("arbiscan_api_key", ""),
-            "polygonscan_api_key": cfg.get("polygonscan_api_key", ""),
-            "basescan_api_key": cfg.get("basescan_api_key", ""),
-            "optimistic_api_key": cfg.get("optimistic_api_key", ""),
-            "eth_rpc_ws_url": cfg.get("eth_rpc_ws_url", ""),
-            "eth_rpc_http_url": cfg.get("eth_rpc_http_url", ""),
-            "default_chain": cfg.get("default_chain", "ethereum"),
-            "strict_mode": cfg.get("strict_mode", False),
-            "sliding_window_seconds": cfg.get("sliding_window_seconds", 10.0),
-            "anomaly_tx_threshold": cfg.get("anomaly_tx_threshold", 5)
-        },
+        "settings": public_settings(cfg),
         "credentials_matrix": matrix
     }
 
@@ -603,8 +698,8 @@ async def update_settings(req: UpdateSettingsRequest):
 
     new_cfg = req.settings
     # If user provided a new passcode in the settings
-    if "new_admin_passcode" in new_cfg and new_cfg["new_admin_passcode"].strip():
-        cfg["admin_passcode"] = new_cfg["new_admin_passcode"].strip()
+    if "new_admin_passcode" in new_cfg and str(new_cfg["new_admin_passcode"]).strip():
+        cfg["admin_passcode"] = str(new_cfg["new_admin_passcode"]).strip()
 
     for key in [
         "gemini_api_key", "etherscan_api_key", "arbiscan_api_key",
@@ -612,8 +707,28 @@ async def update_settings(req: UpdateSettingsRequest):
         "eth_rpc_ws_url", "eth_rpc_http_url", "default_chain",
         "strict_mode", "sliding_window_seconds", "anomaly_tx_threshold"
     ]:
-        if key in new_cfg:
+        if key in SECRET_SETTING_KEYS and key in new_cfg:
+            value = str(new_cfg[key] or "").strip()
+            if value and not value.startswith("••••••••"):
+                cfg[key] = value
+        elif key in new_cfg:
             cfg[key] = new_cfg[key]
+
+    try:
+        cfg["sliding_window_seconds"] = max(
+            1.0, min(300.0, float(cfg.get("sliding_window_seconds", 10.0)))
+        )
+        cfg["anomaly_tx_threshold"] = max(
+            2, min(1000, int(cfg.get("anomaly_tx_threshold", 5)))
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Sliding window and anomaly threshold must be valid numbers."
+        )
+
+    if cfg.get("default_chain") not in settings.chains:
+        raise HTTPException(status_code=400, detail="Unsupported default chain.")
 
     save_web_settings(cfg)
     return {
@@ -654,11 +769,10 @@ async def export_patch(data: Dict[str, Any]):
 @app.websocket("/ws/mempool")
 async def websocket_mempool(websocket: WebSocket):
     """
-    Continuous mempool evaluation WebSocket:
-    - Streams transactions continuously (no fixed batch limit)
-    - Signals Traffic Lights: Green (safe), Yellow (warning), Red (critical)
-    - Delivers one-line summaries for yellow/red signals
-    - Instantly emits a complete Anomaly Insights Report when an anomaly occurs
+    Continuous real-time mempool evaluation WebSocket:
+    - Connects to real Web3 WebSocket RPC endpoints (no synthetic fake streams)
+    - Signals Traffic Lights: Green (safe routine tx), Yellow (elevated frequency / gas), Red (burst anomaly / critical selector)
+    - If RPC endpoint is unconfigured or fails, emits a clear credential/connection error to the user
     """
     await websocket.accept()
     cfg = load_web_settings()
@@ -670,31 +784,11 @@ async def websocket_mempool(websocket: WebSocket):
     sandwich_detector = SandwichDetector(window_seconds=5.0)
 
     is_running = True
-    mode = "simulated"
     chain = cfg.get("default_chain", "ethereum")
-    interval = 0.25
 
-    async def tx_generator():
-        nonlocal mode, chain, interval
-        while is_running:
-            if mode == "simulated":
-                async for tx in SimulatedMempoolStream.stream_synthetic(count=0, interval=interval, simulate_burst=True):
-                    if not is_running:
-                        break
-                    yield tx
-            else:
-                chain_cfg = settings.get_chain_config(chain) if chain in settings.chains else None
-                ws_url = cfg.get("eth_rpc_ws_url") or (chain_cfg["ws_rpc"] if chain_cfg else None)
-                http_rpc = cfg.get("eth_rpc_http_url") or (chain_cfg["http_rpc"] if chain_cfg else None)
-                listener = MempoolListener(ws_url=ws_url, http_rpc_url=http_rpc)
-                async for tx in listener.listen_live():
-                    if not is_running:
-                        break
-                    yield tx
-
-    # Control task to receive commands (pause, resume, switch mode)
+    # Command listener task
     async def listen_commands():
-        nonlocal is_running, mode, chain, interval
+        nonlocal is_running, chain
         try:
             while True:
                 msg = await websocket.receive_text()
@@ -704,108 +798,187 @@ async def websocket_mempool(websocket: WebSocket):
                     is_running = False
                 elif action == "start" or action == "resume":
                     is_running = True
-                    mode = cmd.get("mode", mode)
                     chain = cmd.get("chain", chain)
-                    interval = float(cmd.get("interval", interval))
                 elif action == "update_config":
-                    if "interval" in cmd:
-                        interval = float(cmd["interval"])
-                    if "mode" in cmd:
-                        mode = cmd["mode"]
+                    if "chain" in cmd:
+                        chain = cmd["chain"]
         except Exception:
             is_running = False
 
     cmd_task = asyncio.create_task(listen_commands())
 
     try:
-        gen = tx_generator()
-        async for tx in gen:
+        chain_cfg = settings.get_chain_config(chain) if chain in settings.chains else None
+        ws_url = cfg.get("eth_rpc_ws_url") or (chain_cfg["ws_rpc"] if chain_cfg else None)
+        http_rpc = cfg.get("eth_rpc_http_url") or (chain_cfg["http_rpc"] if chain_cfg else None)
+
+        if not ws_url or not ws_url.strip():
+            await websocket.send_text(json.dumps({
+                "signal": "red",
+                "error": True,
+                "error_code": "MISSING_RPC_URL",
+                "one_line_summary": "Missing RPC Endpoint: Real mempool streaming requires an active Web3 WebSocket URL.",
+                "details": "Please configure your RPC WebSocket URL (Infura, Alchemy, or public node) in Settings -> Node Endpoints."
+            }))
+            return
+
+        # Send initial connecting status
+        await websocket.send_text(json.dumps({
+            "status": "CONNECTING",
+            "provider": mask_secret(ws_url),
+            "chain": chain,
+            "one_line_summary": f"Connecting to live Ethereum mempool node via WebSockets ({chain})..."
+        }))
+
+        listener = MempoolListener(ws_url=ws_url, http_rpc_url=http_rpc)
+
+        async for tx in listener.listen_live():
             if not is_running:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.3)
                 continue
 
-            # Layer 1
-            l1_payload = Normalizer.process_mempool_transaction(tx)
-            # Layer 2
-            parsed_hex = HexEngine.parse_transaction(tx)
-            sender = parsed_hex["sender"]
-            timestamp = tx.get("timestamp")
+            if tx.get("_error"):
+                await websocket.send_text(json.dumps({
+                    "signal": "red",
+                    "error": True,
+                    "error_code": "RPC_DISCONNECTED",
+                    "one_line_summary": tx.get("error", "RPC Connection Failed"),
+                    "details": tx.get("details", "Connection to the Ethereum RPC WebSocket failed. Verify endpoint URL or API credentials in Settings.")
+                }))
+                await asyncio.sleep(2.0)
+                continue
 
-            # Sliding window evaluation
+            # Layer 1: Ingestion & Normalization
+            try:
+                l1_payload = Normalizer.process_mempool_transaction(tx)
+            except Exception as norm_err:
+                logger.debug(f"Transaction normalization error: {norm_err}")
+                continue
+
+            # Layer 2: Hex Engine Parsing
+            parsed_hex = HexEngine.parse_transaction(tx)
+            sender = parsed_hex.get("sender", "0x0")
+            timestamp = tx.get("timestamp")
+            value_eth = parsed_hex.get("value_eth", 0)
+
+            # Real Sliding Window Rate Tracking
             is_anomalous, count, window_meta = rate_tracker.record_transaction(sender, timestamp=timestamp)
-            # Sandwich attack evaluation
+            # Real Sandwich Attack Detection
             is_sandwich, sandwich_meta = sandwich_detector.record_and_evaluate(parsed_hex, timestamp=timestamp)
 
-            # Determine Traffic Light Signal
-            # Red: Sandwich attack, high-risk malicious call, or high frequency burst
-            # Yellow: Moderate frequency (>= 3) or unverified high gas
-            # Green: Safe standard call
             classification = parsed_hex.get("payload_classification", "STANDARD_CALL")
-            
-            if is_sandwich or classification == "SUSPICIOUS_HIGH_RISK_CALL" or is_anomalous:
+            high_gas = parsed_hex.get("high_gas_anomaly", False)
+            decoded_params = parsed_hex.get("decoded_parameters") or {}
+            is_infinite_approval = decoded_params.get("is_infinite_approval", False)
+            sig_info = parsed_hex.get("signature_info") or {}
+            sig_risk = sig_info.get("risk_level", "LOW")
+
+            # ── Determine real Traffic Light Signal and Classification Tag ──
+            classification_tag = "STANDARD_CALL"
+            if is_sandwich or classification == "SUSPICIOUS_HIGH_RISK_CALL" or is_anomalous or value_eth >= 50:
                 signal = "red"
                 if is_sandwich:
-                    one_line_summary = f"[MEV SANDWICH ATTACK] Attacker {sandwich_meta.get('attacker_address', '')[:10]}... front-ran victim on pool {sandwich_meta.get('target_pool', '')[:10]}..."
+                    classification_tag = "MEV_SANDWICH_ATTACK"
+                    one_line_summary = f"[MEV SANDWICH ATTACK] Attacker {str(sandwich_meta.get('attacker_address', ''))[:10]}... front-ran victim on pool {str(sandwich_meta.get('target_pool', ''))[:10]}..."
                 elif classification == "SUSPICIOUS_HIGH_RISK_CALL":
-                    one_line_summary = f"[CRITICAL CALL] High-risk function selector {parsed_hex.get('function_selector')} ({parsed_hex.get('decoded_function_name')}) fired by {sender[:10]}..."
+                    classification_tag = "SUSPICIOUS_HIGH_RISK_CALL"
+                    one_line_summary = f"[CRITICAL CALL] High-risk selector {parsed_hex.get('function_selector')} ({parsed_hex.get('decoded_function_name')}) from {sender[:10]}..."
+                elif value_eth >= 50:
+                    classification_tag = "LARGE_VALUE_TRANSFER"
+                    one_line_summary = f"[LARGE TRANSFER] {value_eth:.4f} ETH moved by {sender[:10]}... — high-value transaction flagged"
                 else:
-                    one_line_summary = f"[BURST ANOMALY] Sender {sender[:10]}... sent {count} transactions in {window_meta.get('window_seconds')}s (Threshold: {window_meta.get('threshold_count')})"
-            elif count >= 3 or parsed_hex.get("gas_price_gwei", 0) > 100:
+                    classification_tag = "HIGH_FREQUENCY_BURST"
+                    one_line_summary = f"[BURST ANOMALY] Real Sender {sender[:10]}... sent {count} transactions in {window_meta.get('window_seconds')}s"
+            elif count >= 3 or high_gas or is_infinite_approval or value_eth >= 10 or sig_risk == "HIGH":
                 signal = "yellow"
-                one_line_summary = f"[ELEVATED ACTIVITY] Sender {sender[:10]}... approaching burst threshold ({count} txs in window)"
+                if is_infinite_approval:
+                    classification_tag = "INFINITE_APPROVAL"
+                    one_line_summary = f"[INFINITE APPROVAL] Unlimited token allowance granted by {sender[:10]}... to {decoded_params.get('spender', '?')[:10]}..."
+                elif value_eth >= 10:
+                    classification_tag = "LARGE_VALUE_TRANSFER"
+                    one_line_summary = f"[ELEVATED VALUE] {value_eth:.4f} ETH transfer by {sender[:10]}... — above threshold"
+                elif high_gas:
+                    classification_tag = "HIGH_GAS_SPIKE"
+                    one_line_summary = f"[HIGH GAS] {parsed_hex.get('gas_price_gwei', 0):.1f} Gwei from {sender[:10]}... — potential frontrunning"
+                elif sig_risk == "HIGH":
+                    classification_tag = "PROXY_UPGRADE"
+                    one_line_summary = f"[PROXY UPGRADE] {parsed_hex.get('decoded_function_name', 'upgradeCall')} invoked by {sender[:10]}... — elevated privilege action"
+                else:
+                    classification_tag = "ELEVATED_ACTIVITY"
+                    one_line_summary = f"[ELEVATED ACTIVITY] Real Sender {sender[:10]}... ({count} txs in {window_meta.get('window_seconds')}s, Gas: {parsed_hex.get('gas_price_gwei', 0):.1f} Gwei)"
             else:
                 signal = "green"
-                one_line_summary = None
+                func_name = parsed_hex.get("decoded_function_name") or "Standard Transfer"
+                gas_val = parsed_hex.get("gas_price_gwei", 0)
+                one_line_summary = f"Real Network Call: {func_name} ({gas_val:.1f} Gwei) to {str(parsed_hex.get('target') or '')[:10]}..."
 
-            # Prepare Instant Anomaly Insights Report if flagged
             anomaly_report = None
-            if signal == "red":
+            if signal in ("yellow", "red"):
                 anomaly_report = generate_anomaly_insights_report(
                     parsed_hex=parsed_hex,
                     window_meta=window_meta,
-                    sandwich_meta=sandwich_meta if is_sandwich else None
+                    sandwich_meta=sandwich_meta if is_sandwich else None,
+                    classification_override=classification_tag,
+                    reason_override=one_line_summary
                 )
-                # Persist to database
-                try:
-                    if is_sandwich:
-                        db.save_mempool_anomaly({
-                            "tx_hash": sandwich_meta["backrun_tx"],
-                            "sender": sandwich_meta["attacker_address"],
-                            "target": sandwich_meta["target_pool"],
-                            "function_selector": parsed_hex.get("function_selector"),
-                            "payload_classification": "MEV_SANDWICH_ATTACK"
-                        }, {
-                            "count_in_window": 3,
-                            "window_seconds": 5.0,
-                            "anomaly_reason": sandwich_meta["detection_reason"]
-                        })
-                    else:
-                        db.save_mempool_anomaly(parsed_hex, window_meta)
-                except Exception as e:
-                    logger.warning(f"Failed to persist anomaly: {e}")
 
-            # Send event to client
+            # Persist all live stream events into the database audit trail
+            try:
+                if is_sandwich:
+                    db.save_mempool_anomaly({
+                        "tx_hash": sandwich_meta.get("backrun_tx") or parsed_hex.get("tx_hash"),
+                        "sender": sandwich_meta.get("attacker_address") or sender,
+                        "target": sandwich_meta.get("target_pool") or parsed_hex.get("target"),
+                        "function_selector": parsed_hex.get("function_selector"),
+                        "classification": "MEV_SANDWICH_ATTACK",
+                        "anomaly_reason": sandwich_meta.get("detection_reason") or one_line_summary
+                    }, {
+                        "count_in_window": 3,
+                        "window_seconds": 5.0,
+                        "anomaly_reason": sandwich_meta.get("detection_reason") or one_line_summary
+                    })
+                else:
+                    db.save_mempool_anomaly({
+                        "tx_hash": parsed_hex.get("tx_hash"),
+                        "sender": sender,
+                        "target": parsed_hex.get("target"),
+                        "function_selector": parsed_hex.get("function_selector"),
+                        "classification": classification_tag if classification_tag != "STANDARD_CALL" else classification,
+                        "anomaly_reason": one_line_summary
+                    }, {
+                        "count_in_window": count,
+                        "window_seconds": window_meta.get("window_seconds", 10.0),
+                        "anomaly_reason": one_line_summary
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to persist real mempool transaction: {e}")
+
+            # Send real event to client
             event_payload = {
                 "signal": signal,
                 "one_line_summary": one_line_summary,
                 "tx": {
                     "tx_hash": parsed_hex.get("tx_hash"),
-                    "sender": parsed_hex.get("sender"),
+                    "sender": sender,
                     "target": parsed_hex.get("target"),
                     "value_wei": parsed_hex.get("value_wei"),
+                    "value_eth": value_eth,
                     "gas_price_gwei": parsed_hex.get("gas_price_gwei", 0),
                     "function_selector": parsed_hex.get("function_selector"),
                     "decoded_name": parsed_hex.get("decoded_function_name"),
-                    "classification": classification,
+                    "classification": classification_tag,
                     "count_in_window": count,
                     "window_seconds": window_meta.get("window_seconds", 10.0),
-                    "timestamp": timestamp or datetime.now(timezone.utc).strftime("%H:%M:%S")
+                    "timestamp": timestamp or datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                    "high_gas_anomaly": high_gas,
+                    "is_infinite_approval": is_infinite_approval,
+                    "risk_level": sig_risk
                 },
                 "anomaly_report": anomaly_report
             }
 
             await websocket.send_text(json.dumps(event_payload))
-            await asyncio.sleep(interval)
+            await asyncio.sleep(0.05)
 
     except WebSocketDisconnect:
         logger.info("Mempool WebSocket disconnected by client")
@@ -815,12 +988,24 @@ async def websocket_mempool(websocket: WebSocket):
         cmd_task.cancel()
 
 
+
+
 # -------------------------------------------------------------
 # Static Web App Mount
 # -------------------------------------------------------------
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    """Keep browser previews free of a noisy missing-favicon request."""
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="16" fill="#d95f37"/>
+      <text x="32" y="40" text-anchor="middle" font-family="Arial" font-size="22"
+        font-weight="700" fill="white">CM</text>
+    </svg>"""
+    return Response(content=svg, media_type="image/svg+xml")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
