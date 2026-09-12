@@ -29,7 +29,11 @@ ENV/
 Thumbs.db
 .agents/
 *.zip
+*.db
+*.sqlite
+*.sqlite3
 *.db-shm
 *.db-wal
 audit_out.json
 audit_report.html
+
