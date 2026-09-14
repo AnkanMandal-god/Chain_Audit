@@ -1,2 +1,18 @@
+[project]
+name = "chain-mind-audit"
+version = "2.0.0"
+description = "End-to-End Blockchain Security Ingestion & Auditing Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5.0",
+    "rich>=13.7.0",
+    "httpx>=0.27.0",
+    "websockets>=12.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "pytest>=8.0.0",
+]
+
 [tool.vercel]
 entrypoint = "src.web.server:app"
