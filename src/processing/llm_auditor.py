@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import httpx
 from config.settings import settings
+from src.presentation.remediation_engine import RemediationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +68,12 @@ Important Guidelines:
 }
 """
 
-    def __init__(self, api_key: Optional[str] = None, strict_mode: bool = False):
+    def __init__(self, api_key: Optional[str] = None, strict_mode: bool = False,
+                 enable_heuristic: bool = True, enable_llm: bool = True):
         self.api_key = api_key or settings.gemini_api_key
         self.strict_mode = strict_mode
+        self.enable_heuristic = enable_heuristic
+        self.enable_llm = enable_llm
 
     def wrap_in_xml(self, code: str) -> str:
         """Isolates untrusted user code inside defensive XML tags, neutralizing jailbreak delimiters."""
@@ -219,6 +223,68 @@ Important Guidelines:
             })
             risk_score = max(risk_score, 8)
 
+        # 10. Spot-price oracle reliance without freshness / TWAP protections.
+        if re.search(r'\b(?:getReserves|slot0|latestAnswer|latestRoundData)\s*\(', clean_code):
+            has_oracle_guard = bool(re.search(r'\b(?:updatedAt|latestRoundData|observe|twap|TWAP|sequencer|answeredInRound)\b', clean_code))
+            if not has_oracle_guard:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "category": "Spot Price Oracle Reliance",
+                    "description": "Price or liquidity data is read from a spot source without a visible freshness, TWAP, or sequencer-uptime guard. A single-block liquidity or oracle manipulation may influence financial logic.",
+                    "location": "Oracle / AMM price read"
+                })
+                risk_score = max(risk_score, 6)
+
+        # 11. Explicit unchecked arithmetic in Solidity 0.8+.
+        if re.search(r'\bunchecked\s*\{', clean_code):
+            findings.append({
+                "severity": "MEDIUM",
+                "category": "Unchecked Arithmetic",
+                "description": "An unchecked arithmetic block accepts the risk of overflow or underflow. Verify that every input is bounded before relying on the unchecked optimization.",
+                "location": "unchecked arithmetic block"
+            })
+            risk_score = max(risk_score, 5)
+
+        # 12. Unbounded returndata copying can exhaust gas on hostile callbacks.
+        if re.search(r'\breturndatacopy\s*\(', clean_code) and not re.search(r'\b(?:returndatasize|mload)\s*\(', clean_code):
+            findings.append({
+                "severity": "MEDIUM",
+                "category": "Unbounded Returndata",
+                "description": "returndatacopy is used without a visible size bound. Malicious callees can return excessive data and force an out-of-gas failure.",
+                "location": "returndatacopy assembly"
+            })
+            risk_score = max(risk_score, 5)
+
+        # 13. Governance paths should use historical snapshots and execution delay.
+        governance_path = re.search(r'\b(?:vote|propose|execute|castVote|quorum)\b', clean_code)
+        has_snapshot_or_delay = re.search(r'\b(?:getPastVotes|getPastTotalSupply|timelock|delay|snapshot)\b', clean_code)
+        if governance_path and not has_snapshot_or_delay and re.search(r'\b(?:governor|proposal|governance)\b', clean_code, re.IGNORECASE):
+            findings.append({
+                "severity": "HIGH",
+                "category": "Flash Governance Risk",
+                "description": "Governance execution appears to lack a historical voting snapshot or timelock, which can enable single-block flash-loan voting and immediate proposal execution.",
+                "location": "Governance voting / execution flow"
+            })
+            risk_score = max(risk_score, 8)
+
+        domain_map = {
+            "Reentrancy": "EVM State & Control Flow",
+            "Insecure Authentication (tx.origin)": "EVM State & Control Flow",
+            "Arbitrary Delegatecall": "EVM State & Control Flow",
+            "Selfdestruct Hazard": "EVM State & Control Flow",
+            "Unchecked Return Value": "EVM State & Control Flow",
+            "Unprotected Initializer": "System Setup, Upgradeability & Governance",
+            "Missing Zero-Address Validation": "Business Logic, Financial Invariants & Inputs",
+            "Timestamp Dependence": "System Setup, Upgradeability & Governance",
+            "Integer Overflow/Underflow": "Business Logic, Financial Invariants & Inputs",
+            "Unchecked Arithmetic": "Business Logic, Financial Invariants & Inputs",
+            "Spot Price Oracle Reliance": "Business Logic, Financial Invariants & Inputs",
+            "Unbounded Returndata": "EVM State & Control Flow",
+            "Flash Governance Risk": "System Setup, Upgradeability & Governance",
+        }
+        for finding in findings:
+            finding.setdefault("domain", domain_map.get(finding.get("category"), "EVM State & Control Flow"))
+
         # Determine summary
         summary = (
             f"Contract '{contract_name or 'TargetContract'}' appears to be a smart contract handling on-chain state. "
@@ -264,10 +330,17 @@ Important Guidelines:
         If GEMINI_API_KEY is available, calls Gemini API using safe XML isolation.
         Otherwise, runs high-precision heuristic security audit (unless strict_mode is True).
         """
+        if not self.enable_llm:
+            if not self.enable_heuristic:
+                raise ValueError("Both the LLM engine and heuristic engine are disabled in Settings.")
+            return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
+
         if not self.api_key:
             if self.strict_mode:
                 raise ValueError("Strict Mode Active: GEMINI_API_KEY is not set. Cannot run real LLM audit without an API key.")
             # Offline / Fallback heuristic engine
+            if not self.enable_heuristic:
+                raise ValueError("Heuristic engine is disabled and no GEMINI_API_KEY is configured.")
             return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
 
         # LLM inference with XML isolation
@@ -301,9 +374,55 @@ Important Guidelines:
                     if self.strict_mode:
                         raise RuntimeError(f"Strict Mode Active: {err_msg}")
                     logger.warning(f"{err_msg}. Falling back to heuristic scanner.")
-                    return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
+                    if self.enable_heuristic:
+                        return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
+                    raise RuntimeError(err_msg)
         except Exception as exc:
             if self.strict_mode:
                 raise RuntimeError(f"Strict Mode Active: LLM inference failed: {exc}") from exc
             logger.warning(f"LLM inference encountered error: {exc}. Falling back to heuristic scanner.")
-            return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
+            if self.enable_heuristic:
+                return self.heuristic_audit_contract(cleaned_source, target_address, contract_name or "Unknown")
+            raise
+
+    async def generate_refined_contract(
+        self,
+        source: str,
+        findings: List[Dict[str, Any]],
+        target_address: str = "Contract.sol"
+    ) -> Dict[str, Any]:
+        """Generate a vulnerable-contract-only refinement through Gemini or offline remediation."""
+        if not findings:
+            return RemediationEngine.generate_refined_contract(source, [])
+        if not self.enable_llm or not self.api_key:
+            return RemediationEngine.generate_refined_contract(source, findings)
+
+        payload = self.wrap_in_xml(source)
+        categories = ", ".join(str(f.get("category", "finding")) for f in findings)
+        prompt = f"""Rewrite the vulnerable Solidity contract below into a safer, complete contract.
+Address only the confirmed findings: {categories}.
+Preserve the public interface and behavior where possible. Return ONLY valid JSON:
+{{"status":"REVIEW_REQUIRED","contract_source":"...","changes":["..."],"explanation":"..."}}
+The result must be treated as generated code requiring compilation, tests, and human review.
+Target: {target_address}
+{payload}"""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.llm_model}:generateContent?key={self.api_key}"
+        request = {
+            "contents": [{"role": "user", "parts": [{"text": self.SYSTEM_PROMPT + "\n\n" + prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.1}
+        }
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                res = await client.post(url, json=request)
+                if res.status_code == 200:
+                    text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    result = json.loads(text)
+                    if result.get("contract_source") and result.get("status"):
+                        return result
+                if self.strict_mode:
+                    raise RuntimeError(f"Refinement request failed with HTTP {res.status_code}.")
+        except Exception as exc:
+            if self.strict_mode:
+                raise RuntimeError(f"Strict refinement failed: {exc}") from exc
+            logger.warning("Refinement inference failed: %s; using offline remediation.", exc)
+        return RemediationEngine.generate_refined_contract(source, findings)

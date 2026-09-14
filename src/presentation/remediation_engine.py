@@ -4,6 +4,7 @@ Layer 3: Automated Remediation Code Diff Generator.
 Produces concrete code patches and remediation diffs for developers
 addressing detected smart contract vulnerabilities.
 """
+import re
 from typing import Dict, Any, List
 
 
@@ -125,6 +126,82 @@ class RemediationEngine:
             patch_lines.append(raw_diff)
 
         return "\n".join(patch_lines) + "\n"
+
+    @classmethod
+    def generate_refined_contract(cls, source: str, findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Produce a conservative offline refinement for the common findings.
+
+        This is intentionally not presented as a substitute for compilation,
+        unit tests, or a human review. It gives resilient/offline mode a useful
+        secure baseline while the LLM path can produce a deeper rewrite.
+        """
+        if not findings:
+            return {
+                "status": "SAFE_NO_REWRITE",
+                "contract_source": source,
+                "changes": [],
+                "explanation": "No vulnerability findings were returned, so the source was not rewritten."
+            }
+
+        revised = source
+        changes = []
+        categories = {str(item.get("category", "")) for item in findings}
+
+        if "Insecure Authentication (tx.origin)" in categories and "tx.origin" in revised:
+            revised = revised.replace("tx.origin", "msg.sender")
+            changes.append("Replaced tx.origin authorization checks with msg.sender.")
+
+        if "Unchecked Return Value" in categories:
+            revised = revised.replace(
+                "recipient.call{value: amount}(\"\");",
+                '(bool success, ) = recipient.call{value: amount}("");\n        require(success, "External call failed");'
+            )
+            changes.append("Added explicit success checking to the common low-level call pattern.")
+
+        if "Reentrancy" in categories and "nonReentrant" not in revised:
+            import_line = 'import "@openzeppelin/contracts/security/ReentrancyGuard.sol";\n'
+            if "ReentrancyGuard.sol" not in revised:
+                revised = import_line + revised
+            contract_match = re.search(r"\bcontract\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", revised)
+            if contract_match:
+                start, end = contract_match.span()
+                declaration = revised[start:end].rstrip(" {")
+                if "ReentrancyGuard" not in declaration:
+                    revised = revised[:start] + declaration + " is ReentrancyGuard {\n" + revised[end:]
+            for fn_name in ("withdraw", "claim", "redeem", "unstake"):
+                revised = re.sub(
+                    rf"(function\s+{fn_name}\s*\([^)]*\)\s*(?:external|public))(\s*)(\{{)",
+                    r"\1 nonReentrant\2\3",
+                    revised,
+                    count=1
+                )
+            changes.append("Added an OpenZeppelin ReentrancyGuard baseline to common withdrawal-style entry points.")
+
+        if "Missing Zero-Address Validation" in categories:
+            revised = re.sub(
+                r"(\b(?:owner|admin|recipient|newOwner)\s*=\s*([A-Za-z_][A-Za-z0-9_]*);)",
+                r"require(\2 != address(0), \"Zero address not allowed\");\n        \1",
+                revised,
+                count=1
+            )
+            changes.append("Added a zero-address guard before the first matching assignment.")
+
+        header = (
+            "// Chain-Mind offline remediation baseline.\n"
+            "// Compile, test, and review this generated source before deployment.\n"
+        )
+        if not revised.startswith("// Chain-Mind offline remediation baseline."):
+            revised = header + revised
+
+        if not changes:
+            changes.append("Generated a review-ready baseline with the original source preserved; no safe automatic rewrite matched.")
+        return {
+            "status": "REVIEW_REQUIRED",
+            "contract_source": revised,
+            "changes": changes,
+            "explanation": "Only contracts with findings are rewritten. The result is a conservative baseline and must be compiled and reviewed before deployment."
+        }
 
     @classmethod
     def save_patch_file(cls, target_filename: str, findings: List[Dict[str, Any]], output_path: str):

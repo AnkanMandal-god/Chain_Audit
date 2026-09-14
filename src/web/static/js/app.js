@@ -6,6 +6,7 @@ const state = {
   batch: [], // [{ name: string, source: string, original: string, modified: boolean }]
   activeBatchIndex: -1,
   auditMode: 'single',
+  refinement: null,
   historyMode: 'audits',
   historyPage: 1,
   historySearch: '',
@@ -49,6 +50,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Single & Batch Audit Actions
   $('runAudit').addEventListener('click', runSingleAudit);
+  $('generateRefinement').addEventListener('click', generateRefinedContract);
+  $('downloadRefinement').addEventListener('click', downloadRefinement);
   $('detectRelationships').addEventListener('click', detectSingleRelationships);
   $('loadSuite').addEventListener('click', loadSuite);
   $('runBatch').addEventListener('click', runBatch);
@@ -594,10 +597,19 @@ function renderAudit(report) {
   $('resultSummary').textContent = report.summary || 'Audit evaluation completed.';
 
   const findings = report.security_findings || [];
+  const refinementButton = $('generateRefinement');
+  const vulnerable = findings.length > 0 && score >= 4;
+  if (refinementButton) {
+    refinementButton.classList.toggle('hidden', !vulnerable);
+    refinementButton.textContent = score >= 7 ? 'Generate secure contract' : 'Generate reviewed baseline';
+  }
+  state.refinement = null;
+  $('refinementPanel')?.classList.add('hidden');
   $('findingCount').textContent = `${findings.length} issue${findings.length === 1 ? '' : 's'}`;
   $('findingsList').innerHTML = findings.length ? findings.map((finding) => `
     <div class="finding ${(finding.severity || '').toLowerCase()}">
       <h4>${esc(finding.title || finding.rule_id || 'Security finding')} <span class="tag tag-neutral">${esc(finding.severity || 'INFO')}</span></h4>
+      ${finding.domain ? `<small>Security domain: ${esc(finding.domain)}</small>` : ''}
       <p>${esc(finding.description || '')}</p>
       ${finding.location ? `<small>Location: ${esc(finding.location)}</small>` : ''}
       ${finding.recommendation ? `<small style="margin-top:4px">Mitigation: ${esc(finding.recommendation)}</small>` : ''}
@@ -606,6 +618,41 @@ function renderAudit(report) {
 
   $('patchPreview').textContent = report.remediation_patch || 'No remediation patch generated for this report.';
   $('auditResult').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function generateRefinedContract() {
+  if (!state.audit?.security_findings?.length) {
+    return toast('No rewrite needed', 'Only vulnerable contracts receive a generated replacement.', 'success');
+  }
+  const source = $('contractSource').value.trim();
+  if (!source) return toast('Source unavailable', 'Keep the audited Solidity source loaded to generate a refinement.', 'error');
+  const button = $('generateRefinement');
+  busy(button, 'Generating…');
+  try {
+    state.refinement = await api('/api/audit/refine', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        source_code: source,
+        findings: state.audit.security_findings,
+        target_address: state.audit.target_address || 'Contract.sol'
+      })
+    });
+    $('refinementExplanation').textContent = state.refinement.explanation || 'Compile, test, and review this generated source before deployment.';
+    $('refinedContractSource').value = state.refinement.contract_source || '';
+    $('refinementChanges').innerHTML = (state.refinement.changes || []).map((change) => `<span>${esc(change)}</span>`).join('');
+    $('refinementPanel').classList.remove('hidden');
+    toast('Secure baseline generated', 'Review the generated contract before using it.', 'success');
+  } catch (error) {
+    toast('Refinement failed', error.message, 'error');
+  } finally {
+    restore(button, state.audit.risk_score >= 7 ? 'Generate secure contract' : 'Generate reviewed baseline');
+  }
+}
+
+function downloadRefinement() {
+  if (!state.refinement?.contract_source) return toast('No generated contract', 'Generate a secure baseline first.', 'error');
+  download(state.refinement.contract_source, 'chainmind-refined-contract.sol', 'text/plain');
 }
 
 // -------------------------------------------------------------
@@ -1135,13 +1182,24 @@ function renderHistory(data) {
   $('historyNext').disabled = data.page >= data.total_pages;
 
   $('historyHead').innerHTML = audits
-    ? '<tr><th>Target</th><th>Risk</th><th>Injections</th><th>Audited</th><th></th></tr>'
-    : '<tr><th>Transaction</th><th>Classification</th><th>Burst</th><th>Detected</th><th></th></tr>';
+    ? '<tr><th>Target</th><th>Risk</th><th>Priority</th><th>Injections</th><th>Audited</th><th></th></tr>'
+    : '<tr><th>Transaction</th><th>Classification</th><th>Priority</th><th>Burst</th><th>Detected</th><th></th></tr>';
 
   $('historyBody').innerHTML = data.items.length ? data.items.map((row) => audits
-    ? `<tr><td><div>${esc(row.target_address)}</div><div class="table-sub">${esc(row.summary || '')}</div></td><td><span class="tag">${row.risk_score}/10 ${riskLabel(row.risk_score)}</span></td><td>${row.detected_injections || 0}</td><td>${prettyDate(row.audit_timestamp)}</td><td><button class="button button-quiet" onclick="inspectAudit(${row.id})">Inspect</button></td></tr>`
-    : `<tr><td><div class="mono">${esc((row.tx_hash || '').slice(0, 18))}…</div><div class="table-sub">${esc(row.sender || '')}</div></td><td><span class="tag">${esc(row.classification)}</span></td><td>${row.frequency_count} / ${row.window_seconds}s</td><td>${prettyDate(row.detected_at)}</td><td><button class="button button-quiet" onclick="inspectAnomaly(${row.id})">Inspect</button></td></tr>`
-  ).join('') : `<tr><td colspan="5"><div class="empty-state">No matching records found.</div></td></tr>`;
+     ? `<tr><td><div>${esc(row.target_address)}</div><div class="table-sub">${esc(row.summary || '')}</div></td><td><span class="tag">${row.risk_score}/10 ${riskLabel(row.risk_score)}</span></td><td>${priorityBadge(Number(row.risk_score) >= 7 ? 'critical' : Number(row.risk_score) >= 4 ? 'high' : 'routine')}</td><td>${row.detected_injections || 0}</td><td>${prettyDate(row.audit_timestamp)}</td><td><button class="button button-quiet" onclick="inspectAudit(${row.id})">Inspect</button></td></tr>`
+     : `<tr><td><div class="mono">${esc((row.tx_hash || '').slice(0, 18))}…</div><div class="table-sub">${esc(row.sender || '')}</div></td><td><span class="tag">${esc(row.classification)}</span></td><td>${priorityBadge(anomalyPriority(row.classification))}</td><td>${row.frequency_count} / ${row.window_seconds}s</td><td>${prettyDate(row.detected_at)}</td><td><button class="button button-quiet" onclick="inspectAnomaly(${row.id})">Inspect</button></td></tr>`
+  ).join('') : `<tr><td colspan="6"><div class="empty-state">No matching records found.</div></td></tr>`;
+}
+
+function anomalyPriority(classification) {
+  if (['MEV_SANDWICH_ATTACK', 'SUSPICIOUS_HIGH_RISK_CALL', 'HIGH_FREQUENCY_BURST'].includes(classification)) return 'critical';
+  if (['PROXY_UPGRADE', 'INFINITE_APPROVAL', 'HIGH_GAS_SPIKE', 'LARGE_VALUE_TRANSFER'].includes(classification)) return 'high';
+  return 'routine';
+}
+
+function priorityBadge(level) {
+  const labels = { critical: 'P1 critical', high: 'P2 review', routine: 'P3 routine' };
+  return `<span class="priority-pill ${level === 'critical' ? 'critical' : level === 'high' ? 'high' : ''}">${labels[level] || labels.routine}</span>`;
 }
 
 async function inspectAudit(id) {
@@ -1493,6 +1551,14 @@ async function loadSettings() {
     $('cfgWindow').value = s.sliding_window_seconds || 10;
     $('cfgThreshold').value = s.anomaly_tx_threshold || 5;
     $('cfgStrict').checked = Boolean(s.strict_mode);
+    $('cfgHeuristic').checked = s.enable_heuristic_engine !== false;
+    $('cfgLlm').checked = s.enable_llm_engine !== false;
+    $('cfgSelector').checked = s.enable_selector_analysis !== false;
+    $('cfgFrequency').checked = s.enable_frequency_analysis !== false;
+    $('cfgSandwich').checked = s.enable_sandwich_detection !== false;
+    $('cfgNeutralization').checked = s.enable_prompt_neutralization !== false;
+    $('cfgRetention').value = s.history_retention_days || 30;
+    $('cfgMaxRecords').value = s.history_max_records || 1000;
 
     $('settingsLocked').classList.add('hidden');
     $('settingsContent').classList.remove('hidden');
@@ -1513,6 +1579,14 @@ async function saveSettings(event) {
     sliding_window_seconds: Number($('cfgWindow').value),
     anomaly_tx_threshold: Number($('cfgThreshold').value),
     strict_mode: $('cfgStrict').checked
+    , enable_heuristic_engine: $('cfgHeuristic').checked
+    , enable_llm_engine: $('cfgLlm').checked
+    , enable_selector_analysis: $('cfgSelector').checked
+    , enable_frequency_analysis: $('cfgFrequency').checked
+    , enable_sandwich_detection: $('cfgSandwich').checked
+    , enable_prompt_neutralization: $('cfgNeutralization').checked
+    , history_retention_days: Number($('cfgRetention').value)
+    , history_max_records: Number($('cfgMaxRecords').value)
   };
 
   [['cfgGemini','gemini_api_key'],['cfgEtherscan','etherscan_api_key'],['cfgArbiscan','arbiscan_api_key'],['cfgPolygonscan','polygonscan_api_key'],['cfgBasescan','basescan_api_key'],['cfgOptimistic','optimistic_api_key'],['cfgPasscode','new_admin_passcode']].forEach(([id, key]) => {

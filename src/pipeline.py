@@ -34,12 +34,21 @@ class ChainMindPipeline:
         chain: str = "ethereum",
         sliding_window_sec: float = 10.0,
         anomaly_threshold: int = 5,
-        strict_mode: bool = False
+        strict_mode: bool = False,
+        enable_heuristic: bool = True,
+        enable_llm: bool = True,
+        enable_prompt_neutralization: bool = True
     ):
         self.chain = chain
         self.strict_mode = strict_mode
+        self.enable_prompt_neutralization = enable_prompt_neutralization
         self.etherscan_client = EtherscanClient(api_key=etherscan_api_key, chain=chain)
-        self.llm_auditor = LLMAuditor(api_key=gemini_api_key, strict_mode=strict_mode)
+        self.llm_auditor = LLMAuditor(
+            api_key=gemini_api_key,
+            strict_mode=strict_mode,
+            enable_heuristic=enable_heuristic,
+            enable_llm=enable_llm,
+        )
         self.rate_tracker = SlidingWindowRateTracker(
             window_seconds=sliding_window_sec,
             threshold_count=anomaly_threshold
@@ -63,7 +72,11 @@ class ChainMindPipeline:
         5. Layer 3 Presentation: Color-coded CLI terminal report or raw JSON.
         """
         # --- LAYER 1: Ingestion & Preprocessing ---
-        layer1_payload = Normalizer.process_contract_source(raw_source, target_address=target_address)
+        layer1_payload = Normalizer.process_contract_source(
+            raw_source,
+            target_address=target_address,
+            neutralize_prompt_injections=self.enable_prompt_neutralization,
+        )
         is_valid_l1, _, err_l1 = GuardrailEngine.validate_layer1(layer1_payload)
         if not is_valid_l1:
             logger.warning(f"Layer 1 schema validation warning: {err_l1}")

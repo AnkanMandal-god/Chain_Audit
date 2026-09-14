@@ -67,7 +67,15 @@ def load_web_settings() -> Dict[str, Any]:
         "default_chain": "ethereum",
         "strict_mode": False,
         "sliding_window_seconds": settings.sliding_window_seconds,
-        "anomaly_tx_threshold": settings.anomaly_tx_threshold
+        "anomaly_tx_threshold": settings.anomaly_tx_threshold,
+        "enable_heuristic_engine": True,
+        "enable_llm_engine": True,
+        "enable_selector_analysis": True,
+        "enable_frequency_analysis": True,
+        "enable_sandwich_detection": True,
+        "enable_prompt_neutralization": True,
+        "history_retention_days": 30,
+        "history_max_records": 1000,
     }
     if CONFIG_FILE.exists():
         try:
@@ -129,6 +137,14 @@ def public_settings(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "strict_mode": bool(cfg.get("strict_mode", False)),
         "sliding_window_seconds": cfg.get("sliding_window_seconds", 10.0),
         "anomaly_tx_threshold": cfg.get("anomaly_tx_threshold", 5),
+        "enable_heuristic_engine": bool(cfg.get("enable_heuristic_engine", True)),
+        "enable_llm_engine": bool(cfg.get("enable_llm_engine", True)),
+        "enable_selector_analysis": bool(cfg.get("enable_selector_analysis", True)),
+        "enable_frequency_analysis": bool(cfg.get("enable_frequency_analysis", True)),
+        "enable_sandwich_detection": bool(cfg.get("enable_sandwich_detection", True)),
+        "enable_prompt_neutralization": bool(cfg.get("enable_prompt_neutralization", True)),
+        "history_retention_days": int(cfg.get("history_retention_days", 30)),
+        "history_max_records": int(cfg.get("history_max_records", 1000)),
     }
 
 # Ensure initial config exists
@@ -158,6 +174,11 @@ class AuthVerifyRequest(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     passcode: str
     settings: Dict[str, Any]
+
+class RefineContractRequest(BaseModel):
+    source_code: str
+    findings: List[Dict[str, Any]]
+    target_address: str = "Contract.sol"
 
 
 # -------------------------------------------------------------
@@ -233,6 +254,9 @@ def get_credentials_matrix(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
 @app.get("/api/status")
 async def get_system_status():
     cfg = load_web_settings()
+    selector_enabled = bool(cfg.get("enable_selector_analysis", True))
+    frequency_enabled = bool(cfg.get("enable_frequency_analysis", True))
+    sandwich_enabled = bool(cfg.get("enable_sandwich_detection", True))
     matrix = get_credentials_matrix(cfg)
     return {
         "status": "ONLINE",
@@ -247,6 +271,18 @@ async def get_system_status():
         "sliding_window": {
             "window_seconds": cfg.get("sliding_window_seconds", 10.0),
             "anomaly_threshold": cfg.get("anomaly_tx_threshold", 5)
+        },
+        "pipeline_controls": {
+            key: bool(cfg.get(key, True))
+            for key in (
+                "enable_heuristic_engine", "enable_llm_engine",
+                "enable_selector_analysis", "enable_frequency_analysis",
+                "enable_sandwich_detection", "enable_prompt_neutralization"
+            )
+        },
+        "history_retention": {
+            "days": int(cfg.get("history_retention_days", 30)),
+            "max_records": int(cfg.get("history_max_records", 1000)),
         },
         "credentials_matrix": matrix
     }
@@ -341,7 +377,10 @@ async def audit_contract(req: AuditContractRequest):
         chain=req.chain,
         sliding_window_sec=float(cfg.get("sliding_window_seconds", 10.0)),
         anomaly_threshold=int(cfg.get("anomaly_tx_threshold", 5)),
-        strict_mode=strict_mode
+        strict_mode=strict_mode,
+        enable_heuristic=bool(cfg.get("enable_heuristic_engine", True)),
+        enable_llm=bool(cfg.get("enable_llm_engine", True)),
+        enable_prompt_neutralization=bool(cfg.get("enable_prompt_neutralization", True)),
     )
 
     try:
@@ -419,7 +458,10 @@ async def audit_batch(req: BatchAuditRequest):
         chain=req.chain,
         sliding_window_sec=float(cfg.get("sliding_window_seconds", 10.0)),
         anomaly_threshold=int(cfg.get("anomaly_tx_threshold", 5)),
-        strict_mode=strict_mode
+        strict_mode=strict_mode,
+        enable_heuristic=bool(cfg.get("enable_heuristic_engine", True)),
+        enable_llm=bool(cfg.get("enable_llm_engine", True)),
+        enable_prompt_neutralization=bool(cfg.get("enable_prompt_neutralization", True)),
     )
 
     # 1. Detect relationships
@@ -468,6 +510,34 @@ async def audit_batch(req: BatchAuditRequest):
         "dependency_graph": graph,
         "reports": individual_reports
     }
+
+
+@app.post("/api/audit/refine")
+async def refine_audited_contract(req: RefineContractRequest):
+    """Generate a safer contract only when the completed audit contains findings."""
+    if not req.findings:
+        return {
+            "status": "SAFE_NO_REWRITE",
+            "contract_source": req.source_code,
+            "changes": [],
+            "explanation": "No vulnerabilities were identified, so no replacement contract was generated."
+        }
+    cfg = load_web_settings()
+    auditor = ChainMindPipeline(
+        gemini_api_key=cfg.get("gemini_api_key"),
+        chain=cfg.get("default_chain", "ethereum"),
+        strict_mode=bool(cfg.get("strict_mode", False)),
+        enable_heuristic=bool(cfg.get("enable_heuristic_engine", True)),
+        enable_llm=bool(cfg.get("enable_llm_engine", True)),
+        enable_prompt_neutralization=bool(cfg.get("enable_prompt_neutralization", True)),
+    ).llm_auditor
+    try:
+        return await auditor.generate_refined_contract(
+            req.source_code, req.findings, target_address=req.target_address
+        )
+    except Exception as exc:
+        logger.error("Contract refinement failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # -------------------------------------------------------------
@@ -622,6 +692,11 @@ async def get_audit_history(
     sort_order: str = Query("desc")
 ):
     """Returns paginated contract audits with risk level and sort filtering."""
+    cfg = load_web_settings()
+    db.cleanup_history(
+        retention_days=int(cfg.get("history_retention_days", 30)),
+        max_records=int(cfg.get("history_max_records", 1000)),
+    )
     return db.get_audits_paginated(
         page=page, page_size=page_size, search=search,
         risk_min=risk_min, risk_max=risk_max,
@@ -638,6 +713,11 @@ async def get_anomaly_history(
     sort_order: str = Query("desc")
 ):
     """Returns paginated mempool anomalies with classification and sort filtering."""
+    cfg = load_web_settings()
+    db.cleanup_history(
+        retention_days=int(cfg.get("history_retention_days", 30)),
+        max_records=int(cfg.get("history_max_records", 1000)),
+    )
     return db.get_anomalies_paginated(
         page=page, page_size=page_size, search=search,
         classification=classification,
@@ -706,6 +786,10 @@ async def update_settings(req: UpdateSettingsRequest):
         "polygonscan_api_key", "basescan_api_key", "optimistic_api_key",
         "eth_rpc_ws_url", "eth_rpc_http_url", "default_chain",
         "strict_mode", "sliding_window_seconds", "anomaly_tx_threshold"
+        , "enable_heuristic_engine", "enable_llm_engine",
+        "enable_selector_analysis", "enable_frequency_analysis",
+        "enable_sandwich_detection", "enable_prompt_neutralization",
+        "history_retention_days", "history_max_records"
     ]:
         if key in SECRET_SETTING_KEYS and key in new_cfg:
             value = str(new_cfg[key] or "").strip()
@@ -721,6 +805,12 @@ async def update_settings(req: UpdateSettingsRequest):
         cfg["anomaly_tx_threshold"] = max(
             2, min(1000, int(cfg.get("anomaly_tx_threshold", 5)))
         )
+        cfg["history_retention_days"] = max(
+            1, min(3650, int(cfg.get("history_retention_days", 30)))
+        )
+        cfg["history_max_records"] = max(
+            50, min(100000, int(cfg.get("history_max_records", 1000)))
+        )
     except (TypeError, ValueError):
         raise HTTPException(
             status_code=400,
@@ -731,6 +821,10 @@ async def update_settings(req: UpdateSettingsRequest):
         raise HTTPException(status_code=400, detail="Unsupported default chain.")
 
     save_web_settings(cfg)
+    db.cleanup_history(
+        retention_days=cfg["history_retention_days"],
+        max_records=cfg["history_max_records"],
+    )
     return {
         "success": True,
         "message": "Settings saved successfully",
@@ -758,7 +852,7 @@ async def export_sarif(report: Dict[str, Any]):
 async def export_patch(data: Dict[str, Any]):
     source = data.get("source_code", "")
     findings = data.get("findings", [])
-    patch_text = RemediationEngine.generate_unified_patch(source, findings, file_path="contract.sol")
+    patch_text = RemediationEngine.generate_patch_file("contract.sol", findings)
     return Response(content=patch_text, media_type="text/x-diff")
 
 
@@ -776,6 +870,9 @@ async def websocket_mempool(websocket: WebSocket):
     """
     await websocket.accept()
     cfg = load_web_settings()
+    selector_enabled = bool(cfg.get("enable_selector_analysis", True))
+    frequency_enabled = bool(cfg.get("enable_frequency_analysis", True))
+    sandwich_enabled = bool(cfg.get("enable_sandwich_detection", True))
 
     rate_tracker = SlidingWindowRateTracker(
         window_seconds=float(cfg.get("sliding_window_seconds", 10.0)),
@@ -862,11 +959,21 @@ async def websocket_mempool(websocket: WebSocket):
             value_eth = parsed_hex.get("value_eth", 0)
 
             # Real Sliding Window Rate Tracking
-            is_anomalous, count, window_meta = rate_tracker.record_transaction(sender, timestamp=timestamp)
+            if frequency_enabled:
+                is_anomalous, count, window_meta = rate_tracker.record_transaction(sender, timestamp=timestamp)
+            else:
+                is_anomalous, count, window_meta = False, 1, {
+                    "count_in_window": 1,
+                    "window_seconds": float(cfg.get("sliding_window_seconds", 10.0)),
+                    "anomaly_reason": "Frequency analysis disabled in Settings."
+                }
             # Real Sandwich Attack Detection
-            is_sandwich, sandwich_meta = sandwich_detector.record_and_evaluate(parsed_hex, timestamp=timestamp)
+            if sandwich_enabled:
+                is_sandwich, sandwich_meta = sandwich_detector.record_and_evaluate(parsed_hex, timestamp=timestamp)
+            else:
+                is_sandwich, sandwich_meta = False, {}
 
-            classification = parsed_hex.get("payload_classification", "STANDARD_CALL")
+            classification = parsed_hex.get("payload_classification", "STANDARD_CALL") if selector_enabled else "STANDARD_CALL"
             high_gas = parsed_hex.get("high_gas_anomaly", False)
             decoded_params = parsed_hex.get("decoded_parameters") or {}
             is_infinite_approval = decoded_params.get("is_infinite_approval", False)

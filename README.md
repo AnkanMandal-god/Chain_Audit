@@ -167,6 +167,10 @@ The workspace contains five areas:
 5. **Settings** — authenticated configuration for provider credentials,
    endpoints, engine parameters, and the admin passcode.
 
+Detailed behavior for the audit framework, remediation flow, terminal mempool
+monitor, priority retention, and pipeline toggles is documented in
+[`docs/WEB_WORKSPACE.md`](docs/WEB_WORKSPACE.md).
+
 The old interactive CLI menu is still available for command-line testing, but
 it is not part of the web product flow. Use the explicit CLI commands in the
 usage section when scripting audits or test runs.

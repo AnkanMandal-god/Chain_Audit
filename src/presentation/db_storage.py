@@ -21,9 +21,9 @@ class AuditDatabase:
         self.db_path = db_path or DB_PATH
         self._init_db()
         try:
-            self.cleanup_old_routine_records(days=7)
+            self.cleanup_history(retention_days=30, max_records=1000)
         except Exception as e:
-            logger.debug(f"Initial routine records cleanup: {e}")
+            logger.debug(f"Initial history cleanup: {e}")
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
@@ -100,6 +100,62 @@ class AuditDatabase:
             if deleted > 0:
                 logger.info(f"Cleaned up {deleted} safe/routine mempool records older than {days} days.")
             return deleted
+
+    def cleanup_history(self, retention_days: int = 30, max_records: int = 1000) -> int:
+        """
+        Retain high-value security history while pruning stale, low-priority records.
+
+        Priority is severity first and recency second. Critical/high-risk audits and
+        anomalies are retained; routine records are eligible for time-based cleanup.
+        If a table still exceeds the configured cap, the lowest priority records are
+        deleted first.
+        """
+        retention_days = max(1, int(retention_days))
+        max_records = max(50, int(max_records))
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        deleted = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM mempool_anomalies
+                WHERE detected_at < ?
+                  AND classification IN (
+                    'STANDARD_CALL', 'ETH_TRANSFER', 'ELEVATED_ACTIVITY',
+                    'HIGH_GAS_SPIKE', 'LARGE_VALUE_TRANSFER'
+                  )
+            """, (cutoff,))
+            deleted += max(0, cursor.rowcount)
+
+            cursor.execute("""
+                DELETE FROM contract_audits
+                WHERE audit_timestamp < ? AND risk_score < 7
+            """, (cutoff,))
+            deleted += max(0, cursor.rowcount)
+
+            for table, timestamp_col, priority_sql in (
+                ("mempool_anomalies", "detected_at",
+                 "CASE WHEN classification IN ('MEV_SANDWICH_ATTACK','SUSPICIOUS_HIGH_RISK_CALL','HIGH_FREQUENCY_BURST') THEN 3 "
+                 "WHEN classification IN ('PROXY_UPGRADE','INFINITE_APPROVAL') THEN 2 ELSE 1 END"),
+                ("contract_audits", "audit_timestamp",
+                 "CASE WHEN risk_score >= 7 THEN 3 WHEN risk_score >= 4 THEN 2 ELSE 1 END"),
+            ):
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                total = cursor.fetchone()[0]
+                excess = total - max_records
+                if excess > 0:
+                    cursor.execute(f"""
+                        DELETE FROM {table}
+                        WHERE id IN (
+                            SELECT id FROM {table}
+                            ORDER BY {priority_sql} ASC, {timestamp_col} ASC
+                            LIMIT ?
+                        )
+                    """, (excess,))
+                    deleted += max(0, cursor.rowcount)
+            conn.commit()
+        if deleted:
+            logger.info("History retention removed %s low-priority records.", deleted)
+        return deleted
 
     def save_contract_audit(self, report: Dict[str, Any]) -> int:
         """Saves a contract audit report into the database."""
@@ -221,7 +277,7 @@ class AuditDatabase:
                                  classification: str = "", sort_order: str = "desc") -> Dict[str, Any]:
         """Retrieves paginated mempool anomalies with classification and sort filtering."""
         try:
-            self.cleanup_old_routine_records(days=7)
+            self.cleanup_history(retention_days=30, max_records=1000)
         except Exception as e:
             logger.debug(f"Routine retention cleanup error: {e}")
 

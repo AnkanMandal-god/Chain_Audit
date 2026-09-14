@@ -223,7 +223,8 @@ class Normalizer:
     def process_contract_source(
         cls,
         raw_source: str,
-        target_address: Optional[str] = None
+        target_address: Optional[str] = None,
+        neutralize_prompt_injections: bool = True
     ) -> Dict[str, Any]:
         """
         Full Layer 1 Ingestion Pipeline for Smart Contract Source Code.
@@ -235,13 +236,19 @@ class Normalizer:
         unpacked_code, _ = cls.unpack_etherscan_source(raw_source)
 
         # Step 2: Detect any prompt injections in raw input (including comments/docstrings)
-        _, raw_injection_count = cls.neutralize_prompt_injections(unpacked_code)
+        _, raw_injection_count = (
+            cls.neutralize_prompt_injections(unpacked_code)
+            if neutralize_prompt_injections else (unpacked_code, 0)
+        )
 
         # Step 3: Strip comments safely
         clean_code = cls.strip_comments(unpacked_code)
 
         # Step 4: Detect and neutralize any remaining prompt injections in code strings
-        clean_code, remaining_injection_count = cls.neutralize_prompt_injections(clean_code)
+        clean_code, remaining_injection_count = (
+            cls.neutralize_prompt_injections(clean_code)
+            if neutralize_prompt_injections else (clean_code, 0)
+        )
         total_injections = max(raw_injection_count, remaining_injection_count)
 
         # Step 5: Extract structural metadata
@@ -255,7 +262,7 @@ class Normalizer:
                 "source_type": "CONTRACT_SOURCE_CODE",
                 "timestamp_processed": iso_timestamp,
                 "input_size_bytes": input_size_bytes,
-                "sanitization_performed": True
+                "sanitization_performed": bool(neutralize_prompt_injections)
             },
             "extracted_data": {
                 "target_address": target_address or "0x0000000000000000000000000000000000000000",

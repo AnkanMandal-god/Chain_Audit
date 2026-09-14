@@ -9,7 +9,15 @@
   "eth_rpc_ws_url": "wss://ethereum-rpc.publicnode.com",
   "eth_rpc_http_url": "https://ethereum.publicnode.com",
   "default_chain": "ethereum",
-  "strict_mode": true,
+  "strict_mode": false,
   "sliding_window_seconds": 10.0,
-  "anomaly_tx_threshold": 5
+  "anomaly_tx_threshold": 5,
+  "enable_heuristic_engine": true,
+  "enable_llm_engine": true,
+  "enable_selector_analysis": true,
+  "enable_frequency_analysis": true,
+  "enable_sandwich_detection": true,
+  "enable_prompt_neutralization": true,
+  "history_retention_days": 30,
+  "history_max_records": 1000
 }

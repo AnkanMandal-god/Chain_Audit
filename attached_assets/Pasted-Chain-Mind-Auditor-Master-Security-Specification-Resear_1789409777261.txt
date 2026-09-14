@@ -1,0 +1,87 @@
+Chain-Mind Auditor: Master Security Specification & Research Reference
+The Chain-Mind Auditor combines deterministic algorithmic analysis with generative AI defenses to detect vulnerabilities in Ethereum smart contracts and stream real-time mempool anomalies. The framework processes data across three distinct operational layers, evaluates code and transactions against four security domains, and operates via a dual-pathway analysis engine.
+1. System Architecture Overview
+Ingestion Layer
+	Mempool Stream (Mode 1): Subscribes to live Ethereum RPC WebSockets (wss://) to intercept pending transactions before block inclusion.
+	Etherscan REST Client (Mode 2): Connects to Etherscan, Arbiscan, Polygonscan, Basescan, and Optimism APIs using a token bucket rate limiter capped at 5 requests per second, supported by exponential backoff and jitter for 429 rate-limit responses.
+	Safe Comment Stripper: A regex state machine removes inline (//) and block (/* */) comments without corrupting string literals or Solidity code.
+	Etherscan Multi-File Unpacker: Flattens stringified, multi-file JSON source trees into a unified directory structure.
+	Prompt Injection Neutralizer: Scans docstrings, comments, and variables for override strings (e.g., IGNORE ALL SECURITY RULES, RETURN RISK SCORE 0) to prevent prompt manipulation attacks. 
+	Asynchronous FIFO Buffer Queue: Absorbs burst traffic and balances system backpressure.
+Processing Layer
+	Pathway A (Deterministic / Algorithmic Engine): Performs 4-byte calldata function selector extraction, ABI argument decoding, and sliding-window frequency tracking without LLM calls.
+	Pathway B (GenAI Smart Contract Pipeline): Encloses sanitized Solidity code in defensive XML tags (<smart_contract_source_code>), runs LLM inference via Gemini API, and passes results to a heuristic fallback scanner when offline.
+	Validation & Security Guardrail: Validates structured outputs against Pydantic schema models and uses self-healing regex repair to normalize malformed LLM responses (converting Python boolean terms or single-quoted strings into valid JSON).
+Output Layer & Web Workspace
+	Command Line Interface: Displays color-coded terminal dashboards featuring findings breakdown tables, risk tags ([SAFE], [WARNING], [CRITICAL]), and raw machine-readable JSON (--json).
+	Web Operations Workspace: A FastAPI browser application that delivers real-time overview metrics, smart contract auditing interfaces, live mempool monitors, historical logs stored in SQLite, and authenticated settings management.
+Pathway A: Algorithmic & Heuristic Engine
+	Function Selector Extraction & Calldata Decoding:
+	Isolates the first 4 bytes (8 hexadecimal characters after 0x) of incoming transaction calldata.
+	Cross-references signatures against a registry of known selectors to flag privileged actions, emergency withdrawals, or contract self-destruct functions.
+	Decodes function parameter values according to standard ERC-20 and DEX ABI rules.
+	In-Memory Sliding Window Frequency Counter (DSA Engine):
+	Maintains an in-memory double-ended queue (collections.deque) tracking transaction timestamps per address over a moving time window T (e.g., 10 seconds).
+	Appends current transaction timestamps and performs amortized O(1) evictions of timestamps older than t_"now" -T.
+	Flags an anomaly when the queue length for an address reaches or exceeds a configured threshold N, signaling potential MEV bot activity, flash loan exploit attempts, or spam bursts.
+	Periodically purges inactive address keys to conserve memory.
+	Offline Static Heuristics Engine:
+	Scans Solidity source code for structural vulnerability signatures when LLM inference is disabled or unavailable.
+	Detects unchecked external calls, direct state variable modifications following call statements, reliance on tx.origin, and missing visibility modifiers. 
+Pathway B: GenAI Security Pipeline
+	Comment Stripping & Neutralization: Sanitizes incoming text by stripping comments and neutralizing prompt injection attempts embedded inside smart contract documentation.
+	XML Context Isolation: Wraps clean source inside <smart_contract_source_code> blocks to keep user input separated from system instructions.
+	Structured LLM Audit: Submits isolated code to Gemini to analyze complex logic flows, cross-function state dependencies, and custom protocol vulnerabilities.
+	Self-Healing Schema Enforcement: Verifies that LLM responses strictly conform to the expected JSON schema, auto-correcting minor structural formatting issues before returning results.
+3. Comprehensive Smart Contract Judging Parameters (The 4 Security Domains)
+Domain 1: EVM State & Control Flow (Code Execution)
+	Reentrancy Mechanics: Evaluates whether external interactions occur before internal state variables update (violating the Checks-Effects-Interactions pattern). 
+	Classic Reentrancy: External calls (such as .call{value: ...}()) made before balance deductions, allowing recursive withdrawals. 
+	Cross-Contract Reentrancy: Inconsistent state across multiple contracts sharing a balance ledger during external callbacks.
+	Read-Only Reentrancy: View functions exposing intermediate, un-updated pricing or balance values to external caller protocols mid-execution.
+	Access Control & Privileged Roles: Checks if administrative functions (minting, pausing, upgrading, or withdrawing) are restricted using modifiers like onlyOwner or hasRole() tied to msg.sender. Flags use of tx.origin for authentication, which exposes contracts to phishing attacks. 
+	Low-Level Call Verification: Checks whether boolean success flags returned by low-level functions (.call(), .delegatecall(), .staticcall()) are validated. Unchecked calls can fail silently, leaving contract storage out of sync. 
+	Delegatecall Scope: Verifies that delegatecall targets are hardcoded or strictly restricted to trusted implementations. Unrestricted target parameters allow callers to execute arbitrary code within the target contract's storage context.
+	Memory and Returndata Handling: Flags unbounded returndatacopy operations that can cause out-of-gas Denial of Service errors when interacting with malicious caller contracts. 
+Domain 2: Business Logic, Financial Invariants & Inputs
+	Oracle & Price Feed Integrity: Identifies reliance on instantaneous spot prices from single Automated Market Maker (AMM) liquidity pools, which are vulnerable to single-block flash loan manipulation. Checks for Chainlink price staleness checks (updatedAt) and L2 sequencer uptime verification. 
+	Precision Arithmetic & Math Order: Ensures calculations use correct operation ordering (multiplying before dividing) to prevent truncation loss. Flags unchecked arithmetic blocks (unchecked { ... }) in Solidity 0.8+ that accept unvalidated user inputs. 
+	Non-Standard ERC Token Compatibility:
+	Checks for proper handling of non-standard tokens that omit boolean return values (e.g., USDT).
+	Flags missing accounting adjustments for fee-on-transfer tokens where received amounts are less than transferred amounts.
+	Identifies reentrancy risks from transfer hooks in ERC-777 or ERC-1363 token standards.
+	Input Bound Validation: Verifies that zero-address (address(0)) and zero-amount checks are present on sensitive state transitions, mints, and transfers.
+Domain 3: System Setup, Upgradeability & Governance
+	Proxy Contract Security: Flags uninitialized logic implementation contracts in proxy setups (ERC-1967, UUPS, Transparent). Uninitialized logic contracts allow attackers to claim ownership and trigger selfdestruct commands. 
+	Storage Collisions & Selector Clashing: Verifies storage layouts across upgradeable contract versions to prevent variable overwrites, and checks for proxy selector overlap between administrative and logic functions. 
+	Timestamp & Block Reliance: Identifies functions that use block.timestamp or block.number for critical randomness or tight time-lock locks, which miners and validators can manipulate within narrow ranges.
+	Single-Block Flash Mint & Governance Attacks: Flags voting and governance execution flows that lack delay timelocks or historical snapshot checkpoints, making them vulnerable to single-block flash-loan voting attacks. 
+Domain 4: Real-Time Network Mechanics & Mempool Anomaly Telemetry
+	Transaction Velocity & Frequency Window: Tracks pending transaction rates per address over a moving window using the sliding-window algorithm. Rapid spikes indicate automated bot deployment, spam attacks, or flash-loan execution chains. 
+	Priority Fee Spikes: Monitors for extreme increases in transaction priority fees relative to base network fees, which typically accompany front-running or sandwich attacks.
+	Dangerous Administrative Selectors: Scans incoming transaction calldata for selectors associated with high-risk admin actions, including emergencyWithdraw, pause, selfdestruct, or upgradeTo. 
+	Sandwich Attack Topology Detection: Identifies mempool transaction sequences where a high-gas buy transaction is ordered immediately before a target user transaction, followed by an immediate back-run sell transaction.
+4. Risk Severity Rating Scale & Decision Matrix
+Findings are classified using an operational risk matrix:
+Risk Level	Impact Criteria	System Action
+CRITICAL	Flaws allowing unmitigated fund theft, contract destruction, or total ownership loss (e.g., reentrancy without state updates, unprotected selfdestruct, uninitialized proxies, or arbitrary delegatecall).	Block Execution & Trigger Alert. Immediately flag in terminal outputs and export machine-readable reports.
+WARNING	Conditional vulnerabilities, pricing vulnerabilities, or operational risks (e.g., spot-price oracle reliance, missing zero-address checks, unchecked return values, or high transaction velocity bursts).	Flag for Manual Review. Display warnings on dashboard and highlight affected line numbers.
+SAFE	Code following standard security patterns, including proper Checks-Effects-Interactions compliance, validated inputs, and standard transaction rates.	Pass Audit Verification. Log clean report entry to historical database.
+5. System Upgrade Roadmap
+Automated Exploit Generation (Foundry / Hardhat PoC)
+	Description: Auto-generates executable test scripts (.t.sol) whenever a Critical or High vulnerability is flagged.
+	Mechanism: Passes the contract source code, AST, and finding details to Gemini, directing it to produce a Foundry test that forks local mainnet state (via Anvil) and executes the exploit step-by-step.
+	Value: Provides proof of exploitability and eliminates false positives.
+Active Defense & Flashbots Countermeasure Triggers
+	Description: Transforms passive mempool monitoring into an automated response pipeline.
+	Mechanism: Automatically constructs and signs a defensive counter-transaction (such as calling a contract's pause() function) when a malicious transaction is detected in the mempool, sending it through private RPC channels like Flashbots to front-run the attacker.
+	Value: Protects protocols in real time before malicious transactions are confirmed on-chain.
+One-Click Code Remediation & Patch Export
+	Description: Automatically generates code fixes and unified diff files (.patch).
+	Mechanism: Prompts Gemini to rewrite vulnerable functions using OpenZeppelin standards (e.g., applying ReentrancyGuard or converting raw calls to SafeERC20 functions) and renders exportable .patch files directly in the Web Workspace.
+	Value: Speeds up patch deployment for developers.
+Multi-Contract Dependency & Call-Graph Tracing
+	Description: Expands single-file audits to evaluate complex, multi-contract protocols.
+	Mechanism: Parses imports and inheritance trees to map cross-contract call graphs, state sharing, and flash-loan callback entry points across multi-file codebases.
+	Value: Catches complex cross-protocol vulnerabilities that single-file scanners miss.
+

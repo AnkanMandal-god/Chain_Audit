@@ -85,11 +85,16 @@
           <button class="button button-quiet" data-view="settings">Configure Key →</button>
         </div>
 
+        <div class="audit-status-strip">
+          <div class="audit-status-main"><span class="status-dot"></span><div><strong>Protected audit pipeline</strong><span>Sanitize → classify → validate → report</span></div></div>
+          <div class="audit-status-chips"><span>4 security domains</span><span>Schema guarded</span><span>Offline ready</span></div>
+        </div>
+
         <div class="drop-zone" id="contractDropZone">
-          <div class="drop-zone-icon"></div>
+          <div class="drop-zone-icon">↥</div>
           <div class="drop-zone-content">
-            <strong>Drag &amp; drop Solidity (.sol) files or an entire folder here</strong>
-            <p>Drop a single file to edit and audit, or a complete multi-file directory to inspect and modify relationships</p>
+            <strong>Bring in Solidity source</strong>
+            <p>Drop a file or folder to edit, map dependencies, and audit the full contract context.</p>
             <div class="drop-zone-actions">
               <button type="button" class="button button-quiet" id="btnBrowseFiles">Choose File(s)</button>
               <button type="button" class="button button-quiet" id="btnBrowseFolder">Choose Folder</button>
@@ -207,6 +212,7 @@
               <button class="button button-quiet" data-export="html">HTML</button>
               <button class="button button-quiet" data-export="sarif">SARIF</button>
               <button class="button button-quiet" data-export="patch">Patch</button>
+              <button class="button button-primary hidden" id="generateRefinement">Generate secure contract</button>
             </div>
           </div>
           <div class="result-summary">
@@ -223,6 +229,11 @@
           </div>
           <div class="findings-heading"><h3>Findings</h3><span id="findingCount">0 issues</span></div>
           <div id="findingsList" class="findings-list"></div>
+          <div class="refinement-panel hidden" id="refinementPanel">
+            <div class="refinement-heading"><div><span class="eyebrow">Vulnerable source only</span><h3>Secure contract baseline</h3><p id="refinementExplanation">Generated code is a review artifact, not a deployment guarantee.</p></div><button class="button button-quiet" id="downloadRefinement">Download Solidity</button></div>
+            <div id="refinementChanges" class="refinement-changes"></div>
+            <textarea id="refinedContractSource" class="code-input refinement-code" readonly></textarea>
+          </div>
           <details class="patch-details"><summary>View remediation patch</summary><pre id="patchPreview" class="code-output"></pre></details>
         </article>
       </section>
@@ -369,6 +380,15 @@
             <div class="settings-section"><div class="section-intro"><span class="eyebrow">Explorer ingestion</span><h2>Verified source providers</h2><p>Keys are only needed when using the matching explorer network.</p></div><div class="settings-fields-grid"><div class="field"><label class="field-label" for="cfgEtherscan">Etherscan</label><input class="text-input secret-input" id="cfgEtherscan" type="password" placeholder="Optional"></div><div class="field"><label class="field-label" for="cfgArbiscan">Arbiscan</label><input class="text-input secret-input" id="cfgArbiscan" type="password" placeholder="Optional"></div><div class="field"><label class="field-label" for="cfgPolygonscan">Polygonscan</label><input class="text-input secret-input" id="cfgPolygonscan" type="password" placeholder="Optional"></div><div class="field"><label class="field-label" for="cfgBasescan">Basescan</label><input class="text-input secret-input" id="cfgBasescan" type="password" placeholder="Optional"></div><div class="field"><label class="field-label" for="cfgOptimistic">Optimism explorer</label><input class="text-input secret-input" id="cfgOptimistic" type="password" placeholder="Optional"></div></div></div>
             <div class="settings-section"><div class="section-intro"><span class="eyebrow">Node endpoints</span><h2>RPC connections</h2><p>Use secure HTTPS and WSS endpoints. Live mempool mode uses the WebSocket endpoint.</p></div><div class="settings-fields-grid"><div class="field"><label class="field-label" for="cfgRpcWs">Ethereum WebSocket RPC</label><input class="text-input mono" id="cfgRpcWs" placeholder="wss://…"></div><div class="field"><label class="field-label" for="cfgRpcHttp">Ethereum HTTP RPC</label><input class="text-input mono" id="cfgRpcHttp" placeholder="https://…"></div></div></div>
             <div class="settings-section"><div class="section-intro"><span class="eyebrow">Detection engine</span><h2>Runtime behavior</h2><p>These values control the sliding-window anomaly detector.</p></div><div class="settings-fields-grid"><div class="field"><label class="field-label" for="cfgChain">Default network</label><select class="select-input" id="cfgChain"><option value="ethereum">Ethereum</option><option value="arbitrum">Arbitrum</option><option value="polygon">Polygon</option><option value="optimism">Optimism</option><option value="base">Base</option></select></div><div class="field"><label class="field-label" for="cfgWindow">Window (seconds)</label><input class="text-input" id="cfgWindow" type="number" min="1" max="300" step="0.5"></div><div class="field"><label class="field-label" for="cfgThreshold">Transactions to flag</label><input class="text-input" id="cfgThreshold" type="number" min="2" max="1000"></div><label class="toggle-field"><input type="checkbox" id="cfgStrict"><span class="toggle-ui"></span><span><strong>Strict real mode</strong><small>Disable heuristic fallback when using the LLM pipeline.</small></span></label></div></div>
+            <div class="settings-section"><div class="section-intro"><span class="eyebrow">Pipeline controls</span><h2>Analysis modules</h2><p>Toggle each security path independently. Changes apply to new audits and streams.</p></div><div class="settings-fields-grid settings-toggle-grid">
+              <label class="toggle-field"><input type="checkbox" id="cfgHeuristic"><span class="toggle-ui"></span><span><strong>Offline heuristic engine</strong><small>Deterministic static checks across the four domains.</small></span></label>
+              <label class="toggle-field"><input type="checkbox" id="cfgLlm"><span class="toggle-ui"></span><span><strong>LLM reasoning engine</strong><small>Context-isolated Gemini analysis when configured.</small></span></label>
+              <label class="toggle-field"><input type="checkbox" id="cfgSelector"><span class="toggle-ui"></span><span><strong>Selector analysis</strong><small>Decode calldata and flag dangerous admin calls.</small></span></label>
+              <label class="toggle-field"><input type="checkbox" id="cfgFrequency"><span class="toggle-ui"></span><span><strong>Velocity analysis</strong><small>Run the sliding-window transaction counter.</small></span></label>
+              <label class="toggle-field"><input type="checkbox" id="cfgSandwich"><span class="toggle-ui"></span><span><strong>Sandwich detection</strong><small>Evaluate front-run / victim / back-run topology.</small></span></label>
+              <label class="toggle-field"><input type="checkbox" id="cfgNeutralization"><span class="toggle-ui"></span><span><strong>Prompt neutralization</strong><small>Strip comments and isolate untrusted source text.</small></span></label>
+            </div></div>
+            <div class="settings-section"><div class="section-intro"><span class="eyebrow">History retention</span><h2>Priority-based cleanup</h2><p>Low-priority records age out first. Critical findings are protected from routine retention cleanup.</p></div><div class="settings-fields-grid"><div class="field"><label class="field-label" for="cfgRetention">Retention window (days)</label><input class="text-input" id="cfgRetention" type="number" min="1" max="3650"></div><div class="field"><label class="field-label" for="cfgMaxRecords">Maximum records per table</label><input class="text-input" id="cfgMaxRecords" type="number" min="50" max="100000"></div></div></div>
             <div class="settings-section"><div class="section-intro"><span class="eyebrow">Access control</span><h2>Admin passcode</h2><p>Change the passcode used to unlock this section.</p></div><div class="field"><label class="field-label" for="cfgPasscode">New passcode</label><input class="text-input" id="cfgPasscode" type="password" placeholder="Leave blank to keep current passcode"></div></div>
             <div class="settings-footer"><span class="field-hint">Credentials are never returned in full by the API.</span><button class="button button-primary" type="submit" id="saveSettings">Save changes <span>→</span></button></div>
           </form>

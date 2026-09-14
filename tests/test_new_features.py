@@ -11,6 +11,7 @@ Unit tests for new enterprise and resilience features:
 """
 import pytest
 import sqlite3
+from datetime import datetime, timezone, timedelta
 from src.ingestion.normalizer import Normalizer
 from src.ingestion.etherscan_client import EtherscanClient
 from src.processing.hex_engine import HexEngine
@@ -191,3 +192,54 @@ def test_patch_generation():
     assert "--- a/Vault.sol" in patch
     assert "+++ b/Vault.sol" in patch
     assert "nonReentrant" in patch
+
+
+def test_refined_contract_is_vulnerability_gated():
+    source = """
+    pragma solidity ^0.8.20;
+    contract Vault {
+        address public owner;
+        function auth() external { require(tx.origin == owner); }
+    }
+    """
+    safe = RemediationEngine.generate_refined_contract(source, [])
+    assert safe["status"] == "SAFE_NO_REWRITE"
+    assert safe["contract_source"] == source
+
+    refined = RemediationEngine.generate_refined_contract(source, [{
+        "category": "Insecure Authentication (tx.origin)",
+        "severity": "HIGH",
+    }])
+    assert refined["status"] == "REVIEW_REQUIRED"
+    assert "tx.origin" not in refined["contract_source"]
+    assert "msg.sender" in refined["contract_source"]
+
+
+def test_history_cleanup_preserves_high_risk_records(tmp_path):
+    db = AuditDatabase(db_path=tmp_path / "retention.db")
+    old = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
+    low_id = db.save_contract_audit({
+        "target_address": "old-routine",
+        "risk_score": 2,
+        "audit_timestamp": old,
+    })
+    high_id = db.save_contract_audit({
+        "target_address": "old-critical",
+        "risk_score": 9,
+        "audit_timestamp": old,
+    })
+    deleted = db.cleanup_history(retention_days=30, max_records=50)
+    assert deleted == 1
+    assert db.get_audit_by_id(low_id) is None
+    assert db.get_audit_by_id(high_id) is not None
+
+
+def test_findings_include_chain_mind_domain_metadata():
+    result = LLMAuditor().heuristic_audit_contract(
+        "contract Auth { address owner; function check() external { require(tx.origin == owner); } }",
+        "0xauth",
+        "Auth",
+    )
+    assert result["security_findings"]
+    assert all(finding["domain"] == "EVM State & Control Flow"
+               for finding in result["security_findings"])
