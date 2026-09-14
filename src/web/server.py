@@ -33,7 +33,7 @@ from src.web.dependency_detector import ContractRelationshipDetector
 logger = logging.getLogger("chainmind.web")
 
 # Paths
-CONFIG_FILE = BASE_DIR / "config" / "web_settings.json"
+CONFIG_FILE = Path("/tmp/web_settings.json") if os.getenv("VERCEL") else (BASE_DIR / "config" / "web_settings.json")
 STATIC_DIR = BASE_DIR / "src" / "web" / "static"
 
 app = FastAPI(

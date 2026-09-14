@@ -42,6 +42,13 @@ from rich.panel import Panel
 
 console = Console(safe_box=True)
 
+# Expose FastAPI app instance for Vercel / ASGI serverless runners
+try:
+    from src.web.server import app
+except Exception:
+    app = None
+
+
 
 def parse_args():
     parser = argparse.ArgumentParser(

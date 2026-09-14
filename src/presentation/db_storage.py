@@ -4,6 +4,7 @@ Layer 3: SQLite Database Persistence Engine.
 Stores and queries historical contract audits and live mempool anomaly alerts
 for audit trail verification, historical risk analytics, and security reporting.
 """
+import os
 import sqlite3
 import json
 import logging
@@ -13,7 +14,7 @@ from typing import Dict, Any, List, Optional
 from config.settings import BASE_DIR
 
 logger = logging.getLogger("ChainMind.Storage")
-DB_PATH = BASE_DIR / "audit_history.db"
+DB_PATH = Path("/tmp/audit_history.db") if os.getenv("VERCEL") else (BASE_DIR / "audit_history.db")
 
 
 class AuditDatabase:
