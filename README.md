@@ -41,6 +41,46 @@
 
 ---
 
+## Quickstart & Shortcut Launcher
+
+For new users, we provide a unified shortcut launcher to explore and run the 3 core modes of Chain-Mind Auditor easily:
+
+### 1. Interactive Shortcut Menu
+Double-click `quickstart.bat` on Windows or run:
+```bash
+python quickstart.py
+```
+This presents an interactive menu explaining the 3 available run modes:
+- **Mode 1 — 🌐 Web Operations Center**: Launch FastAPI browser dashboard & API docs at `http://127.0.0.1:5000`
+- **Mode 2 — 💻 Terminal CLI Menu**: Interactive contract auditor, mempool analyzer, and history viewer
+- **Mode 3 — 🧪 Automated Test Suite**: Run the complete 51+ test suite across ingestion, heuristics, guardrails, & web APIs
+
+### 2. Automatic Non-Interactive Execution
+Run without prompts or user intervention directly from shell or scripts:
+```bash
+# Auto-launch Web Operations Center directly
+python quickstart.py --auto
+
+# Or specify a target mode directly
+python quickstart.py --mode web
+python quickstart.py --mode menu
+python quickstart.py --mode tests
+```
+
+### 3. Programmatic Python Function Callers
+You can also import and trigger auto-runners directly in Python:
+```python
+from quickstart import auto_run, auto_run_web, auto_run_menu, auto_run_tests
+
+# Auto-launch web dashboard programmatically
+auto_run_web(port=5000)
+
+# Or run by mode name
+auto_run(mode="web")
+```
+
+---
+
 ## Getting Started
 
 ### Prerequisites
