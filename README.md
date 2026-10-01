@@ -1,10 +1,10 @@
-# 🛡️ Chain-Mind Auditor
+# Chain-Mind Auditor
 
 **Chain-Mind Auditor** is an enterprise-grade, end-to-end blockchain security auditing, mempool monitoring, and threat ingestion platform. It ingests live EVM network data (real-time pending mempool transactions and verified contract source code across multiple explorers), defends against adversarial inputs and prompt injection attacks, executes deterministic algorithmic threat detection alongside generative AI reasoning, and provides automated vulnerability remediation.
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 The system follows a resilient **3-Tier Pipeline**:
 
@@ -37,9 +37,9 @@ The system follows a resilient **3-Tier Pipeline**:
 
 ---
 
-## ✨ Core Features & Capabilities
+## Core Features & Capabilities
 
-### 🔍 1. Smart Contract Security Auditing
+### 1. Smart Contract Security Auditing
 - **Multi-Input Ingestion**: Audit local `.sol` files, entire project folders, raw pasted Solidity code, or live verified on-chain addresses.
 - **Multi-Chain Support**: Native explorer integration with **Ethereum, Arbitrum, Optimism, Polygon, and Base**.
 - **Multi-File Unpacker**: Flattens nested, multi-file and stringified JSON compiler outputs into a unified dependency tree.
@@ -52,7 +52,7 @@ The system follows a resilient **3-Tier Pipeline**:
   3. *Setup, Upgradeability & Governance*
   4. *Real-Time Network Mechanics & Mempool Telemetry*
 
-### ⚡ 2. Real-Time Mempool Monitoring & MEV Detection
+### 2. Real-Time Mempool Monitoring & MEV Detection
 - **Dual Stream Modes**:
   - **Live Mode**: Connects directly to Ethereum nodes via WebSockets (`wss://`).
   - **Simulated Mode**: Built-in realistic attack simulation reproducing flash-loan attacks, DDoS bursts, and drain exploits.
@@ -61,18 +61,18 @@ The system follows a resilient **3-Tier Pipeline**:
 - **Sandwich Attack Identification**: Analyzes transaction sequences to flag front-running high gas fees, victim transactions, and back-running profit drains.
 - **EIP-1559 Gas Spike Detection**: Flags priority fee anomalies and aggressive gas bidding.
 
-### 🛡️ 3. Adversarial Defense & Guardrails
+### 3. Adversarial Defense & Guardrails
 - **Prompt Injection Defense**: Neutralizes jailbreaks hidden in comments or docstrings (e.g., `"IGNORE ALL RULES"`, `"RETURN RISK 0"`).
 - **Evasion Neutralization**: Strips zero-width unicode characters and nested XML injection tags.
 - **Self-Healing Output Guardrails**: Automatically detects and repairs common LLM syntax failures (markdown code fences, conversational fluff, single-quoted JSON, Python `True`/`False` literals).
 
-### 🛠️ 4. Remediation & Enterprise CI/CD
+### 4. Remediation & Enterprise CI/CD
 - **Automated Fix Generation**: Generates diff patches (`.patch`) for detected vulnerabilities and produces full refactored secure Solidity contracts.
 - **OASIS SARIF v2.1.0 Exporter**: Directly integrates with **GitHub Advanced Security** and IDE security scanning tabs.
 - **Standalone HTML Audit Reports**: Generates interactive, self-contained HTML audit reports with color-coded severity badges and remediation instructions.
 - **CI/CD Quality Gate**: Command-line flag `--fail-on-risk <score>` that automatically fails builds (exit code `1`) if high-severity vulnerabilities are present.
 
-### 🌐 5. Web Operations Center & REST API
+### 5. Web Operations Center & REST API
 - **Modern Web Dashboard**: Served directly on `http://127.0.0.1:5000` with 5 workspaces:
   - **Overview**: High-level platform telemetry, readiness metrics, and recent security events.
   - **Contract Audit**: Interactive contract submission, multi-file relationship mapping, and remediation viewer.
@@ -81,13 +81,13 @@ The system follows a resilient **3-Tier Pipeline**:
   - **Settings**: Authenticated management of API keys, RPC endpoints, and pipeline toggles.
 - **Interactive OpenAPI Docs**: Complete Swagger UI documentation available at `/docs`.
 
-### 💾 6. Storage & Data Retention
+### 6. Storage & Data Retention
 - **SQLite Database with WAL Mode**: High-throughput persistence for audit logs and mempool anomalies.
 - **Smart Priority Retention**: Automatically purges stale low-priority records (P3) while permanently safeguarding critical security findings (P1).
 
 ---
 
-## 🚀 Quickstart & Navigation Guide
+## Quickstart & Navigation Guide
 
 For new users, we provide a unified shortcut launcher to explore and run the 3 core modes of Chain-Mind Auditor easily:
 
@@ -127,7 +127,7 @@ auto_run(mode="web")
 
 ---
 
-## 📦 Getting Started & Installation
+## Getting Started & Installation
 
 ### Prerequisites
 - Python 3.12+
@@ -154,7 +154,7 @@ pip install -r requirements.txt
 
 ---
 
-## 💻 CLI Commands & Scripting Reference
+## CLI Commands & Scripting Reference
 
 ### 1. Audit Smart Contracts
 ```bash
@@ -209,7 +209,7 @@ python main.py view-history --anomalies
 
 ---
 
-## 🌐 Web Workspace & REST API Reference
+## Web Workspace & REST API Reference
 
 The Web Operations Center runs on `http://127.0.0.1:5000` (`python main.py web --port 5000`).
 
@@ -247,7 +247,7 @@ The Settings area is protected by the `admin_passcode` (default: `chainmind-admi
 
 ---
 
-## 🧪 Test Suite & Verification
+## Test Suite & Verification
 
 The codebase includes a **comprehensive 51-test automated test suite** running on `pytest`:
 
@@ -257,23 +257,23 @@ python main.py run-tests
 ```
 
 ### Verified Test Matrix:
-- ✅ **Safe Comment Stripping & String Preservation**: Handles inline strings, multi-line blocks, and NatSpec tags.
-- ✅ **Prompt Injection & Adversarial Neutralization**: Tests zero-width evasions, XML tag breakouts, and prompt leaks.
-- ✅ **Etherscan Multi-File Ingestion**: Unpacks nested compiler JSON bundles and extracts AST signatures.
-- ✅ **Token Bucket Rate Limiting**: Verifies $<=\text{5 req/sec}$ timing accuracy and backpressure queues.
-- ✅ **DSA Sliding Window Anomaly Detection**: Validates $O(1)$ deque eviction, burst detection, and garbage collection.
-- ✅ **Hex Engine & ABI Decoding**: Selectors for ERC-20 transfers, infinite approvals, and high-risk drains.
-- ✅ **MEV Sandwich Detection**: Verifies front-run / victim / back-run transaction sequence classification.
-- ✅ **Static Heuristics Engine**: Reentrancy, `tx.origin` patterns, transient storage (`TSTORE`), uninitialized proxies, and pre-0.8.0 overflows.
-- ✅ **Pydantic Guardrails & Self-Healing**: Repairs markdown fences, single-quoted JSON, and python literals.
-- ✅ **SARIF & HTML Export**: Conformance with OASIS SARIF v2.1.0 and interactive HTML report generation.
-- ✅ **SQLite Persistence & WAL Mode**: Validates ACID compliance, indexes, and priority-based age retention.
-- ✅ **Web REST & WebSocket APIs**: Endpoints, relationship detector, and auth gate testing.
+- **Safe Comment Stripping & String Preservation**: Handles inline strings, multi-line blocks, and NatSpec tags.
+- **Prompt Injection & Adversarial Neutralization**: Tests zero-width evasions, XML tag breakouts, and prompt leaks.
+- **Etherscan Multi-File Ingestion**: Unpacks nested compiler JSON bundles and extracts AST signatures.
+- **Token Bucket Rate Limiting**: Verifies $<=\text{5 req/sec}$ timing accuracy and backpressure queues.
+- **DSA Sliding Window Anomaly Detection**: Validates $O(1)$ deque eviction, burst detection, and garbage collection.
+- **Hex Engine & ABI Decoding**: Selectors for ERC-20 transfers, infinite approvals, and high-risk drains.
+- **MEV Sandwich Detection**: Verifies front-run / victim / back-run transaction sequence classification.
+- **Static Heuristics Engine**: Reentrancy, `tx.origin` patterns, transient storage (`TSTORE`), uninitialized proxies, and pre-0.8.0 overflows.
+- **Pydantic Guardrails & Self-Healing**: Repairs markdown fences, single-quoted JSON, and python literals.
+- **SARIF & HTML Export**: Conformance with OASIS SARIF v2.1.0 and interactive HTML report generation.
+- **SQLite Persistence & WAL Mode**: Validates ACID compliance, indexes, and priority-based age retention.
+- **Web REST & WebSocket APIs**: Endpoints, relationship detector, and auth gate testing.
 
 **Result: 51 / 51 tests passed (100% pass rate).**
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
